@@ -12,9 +12,12 @@ implementation that agrees byte-for-byte is what proves docs/PROTOCOL.md is
 unambiguous rather than merely written down.
 
 Usage:
-    py tools/fake_phone.py --selftest              # print the golden packet, exit
-    py tools/fake_phone.py --host 192.168.1.12     # stream input at 125 Hz
+    py tools/fake_phone.py --selftest              # print the golden packets, exit
+    py tools/fake_phone.py --host 192.168.1.12     # connect, then stream at 125 Hz
     py tools/fake_phone.py --listen                # decode an incoming stream
+    py tools/fake_phone.py --no-handshake          # send input without connecting
+
+Run several at once to test multiple pads -- each gets its own slot.
 
 No dependencies beyond the standard library.
 """
@@ -42,6 +45,19 @@ INPUT_PORT = 27500
 DISCOVERY_PORT = 27501
 
 INPUT_PACKET_SIZE = 20
+SESSION_MESSAGE_SIZE = 4
+
+# The pad byte when it names no particular slot: "any slot, you choose" in a
+# HELLO, and "no slot for you" in the WELCOME that answers one.
+NO_PAD = 0xFF
+
+# How long to wait for a WELCOME before sending HELLO again. UDP does not
+# guarantee delivery, so a HELLO can simply vanish -- the client is the side that
+# retries. This also covers the ordinary case of starting this before the server.
+HELLO_RETRY_SECONDS = 0.2
+
+# How long the server tolerates silence before it zeroes and unplugs the pad.
+SESSION_TIMEOUT_SECONDS = 2.0
 
 MSG_INPUT = 0x01
 MSG_HELLO = 0x02
@@ -56,7 +72,13 @@ MSG_DISCOVER = 0x06
 # with no padding. Without it Python uses native alignment and the layout shifts.
 INPUT_FORMAT = "<BBBBIHBBhhhh"
 
+# HELLO, WELCOME and BYE are the header and nothing else: magic, version, type,
+# pad. They carry no sequence number -- ordering only matters for the 125 Hz
+# stream, where a late packet would jerk the stick backwards.
+SESSION_FORMAT = "<BBBB"
+
 assert struct.calcsize(INPUT_FORMAT) == INPUT_PACKET_SIZE
+assert struct.calcsize(SESSION_FORMAT) == SESSION_MESSAGE_SIZE
 
 # Buttons, one bit each.
 BTN_DPAD_UP = 0x0001
@@ -134,6 +156,30 @@ def decode_input(data: bytes) -> dict | None:
     }
 
 
+def encode_session(msg_type: int, pad: int) -> bytes:
+    """Build one 4-byte HELLO, WELCOME or BYE."""
+    return struct.pack(SESSION_FORMAT, MAGIC_BYTE, VERSION, msg_type, pad)
+
+
+def decode_session(data: bytes) -> dict | None:
+    """Parse a session message, or return None if it isn't one.
+
+    An INPUT packet is correctly rejected here: the two are told apart by length
+    alone, which is why nothing else may ever be exactly four bytes.
+    """
+    if len(data) != SESSION_MESSAGE_SIZE:
+        return None
+
+    magic, version, msg_type, pad = struct.unpack(SESSION_FORMAT, data)
+
+    if magic != MAGIC_BYTE or version != VERSION:
+        return None
+    if msg_type not in (MSG_HELLO, MSG_WELCOME, MSG_BYE):
+        return None
+
+    return {"type": msg_type, "pad": pad}
+
+
 # ---------------------------------------------------------------------------
 # The golden vector
 #
@@ -153,6 +199,15 @@ GOLDEN_THUMB_RX = 32767
 GOLDEN_THUMB_RY = -32768
 
 GOLDEN_EXPECTED_HEX = "da010102785634120410 20c8e80318fcff7f0080".replace(" ", "")
+
+# The session messages, in the same spirit. These match the golden arrays in
+# server/DroidOSS.Tests/SessionMessageTests.cs byte for byte.
+GOLDEN_SESSION = {
+    "HELLO":         (MSG_HELLO,   NO_PAD, "da0102ff"),
+    "WELCOME pad 1": (MSG_WELCOME, 1,      "da010301"),
+    "WELCOME full":  (MSG_WELCOME, NO_PAD, "da0103ff"),
+    "BYE pad 1":     (MSG_BYE,     1,      "da010401"),
+}
 
 
 def golden_packet() -> bytes:
@@ -218,20 +273,104 @@ def run_selftest() -> int:
         print("  FAIL: a wrong-length buffer was accepted")
         ok = False
 
+    # ---- session messages -------------------------------------------------
+
+    print("  session messages, 4 bytes each:")
+    for name, (msg_type, pad, expected) in GOLDEN_SESSION.items():
+        encoded = encode_session(msg_type, pad)
+        actual_hex = encoded.hex()
+        mark = "  " if actual_hex == expected else "  <- FAIL"
+        print(f"    {name:<14} {' '.join(f'{b:02X}' for b in encoded)}{mark}")
+
+        if actual_hex != expected:
+            print(f"      expected {expected}, got {actual_hex}")
+            ok = False
+
+        decoded = decode_session(encoded)
+        if decoded is None or decoded["type"] != msg_type or decoded["pad"] != pad:
+            print(f"      FAIL: {name} did not round-trip")
+            ok = False
+    print()
+
+    # The two decoders must never both accept the same bytes. They are told
+    # apart by length alone, so this is what keeps that true.
+    if decode_session(packet) is not None:
+        print("  FAIL: an INPUT packet was accepted as a session message")
+        ok = False
+    if decode_input(encode_session(MSG_HELLO, NO_PAD)) is not None:
+        print("  FAIL: a HELLO was accepted as an INPUT packet")
+        ok = False
+    if decode_session(b"\x00" * SESSION_MESSAGE_SIZE) is not None:
+        print("  FAIL: a session message with no magic byte was accepted")
+        ok = False
+
     if ok:
         print("  OK - encoding, round trip and rejection all behave.")
         print()
         print("  Cross-check: this hex must match GoldenBytes in")
-        print("  server/DroidOSS.Tests/InputPacketTests.cs")
+        print("  server/DroidOSS.Tests/InputPacketTests.cs, and the session")
+        print("  vectors in server/DroidOSS.Tests/SessionMessageTests.cs")
 
     return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
+# The handshake
+# ---------------------------------------------------------------------------
+
+def perform_handshake(sock: socket.socket, host: str, port: int,
+                      attempts: int = 15) -> int | None:
+    """Ask for a pad slot, and keep asking until the server answers.
+
+    Returns the assigned slot, NO_PAD if the server is full, or None if nothing
+    replied at all.
+
+    The retry loop is the point. A HELLO can be lost, and the server would then
+    never know this client exists -- it would drop every INPUT that followed as
+    coming from an unknown sender. Retrying is the client's job because the
+    client is the side that wants something, and it doubles as the answer to the
+    most common real situation: the app being opened before the server is running.
+    """
+    hello = encode_session(MSG_HELLO, NO_PAD)
+    sock.settimeout(HELLO_RETRY_SECONDS)
+
+    try:
+        for attempt in range(1, attempts + 1):
+            sock.sendto(hello, (host, port))
+
+            try:
+                data, _ = sock.recvfrom(64)
+            except socket.timeout:
+                if attempt == 1 or attempt % 5 == 0:
+                    print(f"  no WELCOME yet ({attempt}/{attempts})...")
+                continue
+            except ConnectionResetError:
+                # Windows reports ICMP "port unreachable" this way, which is what
+                # you get when nothing is listening. Keep trying -- the server
+                # may be about to start.
+                if attempt == 1:
+                    print("  nothing listening there yet...")
+                time.sleep(HELLO_RETRY_SECONDS)
+                continue
+
+            message = decode_session(data)
+            if message is None or message["type"] != MSG_WELCOME:
+                continue
+
+            return message["pad"]
+
+        return None
+
+    finally:
+        sock.settimeout(None)
 
 
 # ---------------------------------------------------------------------------
 # Sending
 # ---------------------------------------------------------------------------
 
-def run_sender(host: str, port: int, pad: int, rate: float, duration: float | None) -> int:
+def run_sender(host: str, port: int, pad: int, rate: float, duration: float | None,
+               no_handshake: bool = False) -> int:
     """Stream INPUT packets at a fixed rate.
 
     Fixed-rate rather than send-on-change: event-driven sending arrives in
@@ -240,6 +379,35 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
     depends on being able to tell apart.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    if no_handshake:
+        # Deliberately antisocial: fire input at a server that has never heard of
+        # us. Everything sent should be counted as coming from an unknown sender
+        # and no pad should appear. This is the only way to exercise that path.
+        print(f"Skipping the handshake -- sending to {host}:{port} uninvited.")
+        print("The server should ignore all of it.")
+        print()
+        slot = pad
+    else:
+        print(f"Connecting to {host}:{port}...")
+        slot = perform_handshake(sock, host, port)
+
+        if slot is None:
+            print()
+            print(f"No answer from {host}:{port}.")
+            print("Check: is the server running, is the address right, is a firewall in the way?")
+            sock.close()
+            return 1
+
+        if slot == NO_PAD:
+            print()
+            print("The server is full -- all four pads are in use.")
+            print("Disconnect another phone and try again.")
+            sock.close()
+            return 1
+
+        print(f"Connected as pad {slot}.")
+        print()
 
     period = 1.0 / rate
     amplitude = 0.85 * 32767
@@ -251,7 +419,7 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
     next_tick = started
     last_report = started
 
-    print(f"Sending to {host}:{port} as pad {pad} at {rate:g} Hz.")
+    print(f"Sending to {host}:{port} as pad {slot} at {rate:g} Hz.")
     print("Press Ctrl+C to stop.")
     print()
 
@@ -270,7 +438,7 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
             buttons = BTN_A if int(elapsed) % 2 == 0 else 0
 
             packet = encode_input(
-                pad=pad,
+                pad=slot,
                 sequence=sequence,
                 buttons=buttons,
                 thumb_lx=int(math.cos(angle) * amplitude),
@@ -301,10 +469,18 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
         print("Stopping.")
 
     finally:
-        # What the real app does in onPause: neutral state, then BYE, so the
-        # server unplugs immediately instead of waiting out its 2 s timeout.
-        neutral = encode_input(pad=pad, sequence=sequence)
+        # Exactly what the real app must do in onPause: neutral state first, then
+        # BYE. Neutral first because a game that latches the last state it saw
+        # would otherwise hold the stick wherever the thumb left it; BYE so the
+        # server unplugs immediately instead of waiting out its 2 s timeout,
+        # which is technically correct and practically awful when someone just
+        # glanced at a notification.
+        neutral = encode_input(pad=slot, sequence=sequence)
         sock.sendto(neutral, (host, port))
+
+        if not no_handshake:
+            sock.sendto(encode_session(MSG_BYE, slot), (host, port))
+
         sock.close()
 
     elapsed = time.perf_counter() - started
@@ -422,7 +598,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=INPUT_PORT,
                         help=f"UDP port (default: {INPUT_PORT})")
     parser.add_argument("--pad", type=int, default=0, choices=range(4),
-                        help="which pad slot to claim (default: 0)")
+                        help="preferred pad slot -- the server decides, and usually ignores this")
     parser.add_argument("--rate", type=float, default=125.0,
                         help="packets per second (default: 125)")
     parser.add_argument("--duration", type=float, default=None,
@@ -431,6 +607,8 @@ def main() -> int:
                         help="print the golden packet and verify encoding, then exit")
     parser.add_argument("--listen", action="store_true",
                         help="receive and decode instead of sending")
+    parser.add_argument("--no-handshake", action="store_true",
+                        help="send input without connecting first; the server should ignore it")
 
     args = parser.parse_args()
 
@@ -438,7 +616,8 @@ def main() -> int:
         return run_selftest()
     if args.listen:
         return run_listener(args.port, args.duration)
-    return run_sender(args.host, args.port, args.pad, args.rate, args.duration)
+    return run_sender(args.host, args.port, args.pad, args.rate, args.duration,
+                      args.no_handshake)
 
     
 if __name__ == "__main__":

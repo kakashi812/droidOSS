@@ -45,6 +45,45 @@ public static class Protocol
     /// <summary>Size of the header every message shares, whatever its type.</summary>
     public const int HeaderSize = 4;
 
+    /// <summary>
+    /// Size of HELLO, WELCOME and BYE. They carry no payload — the header says
+    /// everything they need to.
+    /// </summary>
+    public const int SessionMessageSize = HeaderSize;
+
+    /// <summary>
+    /// The <c>pad</c> byte when it names no particular slot.
+    /// </summary>
+    /// <remarks>
+    /// In HELLO it means "any slot, you choose" — a phone never picks its own,
+    /// or two phones both claim pad 0. In WELCOME it means the opposite end of
+    /// the same conversation: "no slot for you", all four are in use.
+    /// </remarks>
+    public const byte NoPad = 0xFF;
+
+    /// <summary>
+    /// How long a session survives without a packet before the pad is zeroed
+    /// and unplugged.
+    /// </summary>
+    /// <remarks>
+    /// The phone sends every 8 ms, so 2 s is 250 missed packets — unambiguous
+    /// silence rather than a rough patch of Wi-Fi. This is why the Android app
+    /// must keep a send-rate floor even when idle: throttle below one packet per
+    /// two seconds and the server would disconnect a phone sitting in a menu.
+    /// </remarks>
+    public static readonly TimeSpan SessionTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// How long a client waits for WELCOME before sending HELLO again.
+    /// </summary>
+    /// <remarks>
+    /// UDP does not guarantee delivery, so a HELLO can simply vanish and the
+    /// server would never know a phone was there. The client retries — it is the
+    /// side that wants something. This also covers the ordinary case of the app
+    /// being opened before the server is running.
+    /// </remarks>
+    public static readonly TimeSpan HelloRetryInterval = TimeSpan.FromMilliseconds(200);
+
     /// <summary>Byte positions within a packet. The codec never contains a bare number.</summary>
     public static class Offset
     {

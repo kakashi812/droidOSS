@@ -10,18 +10,19 @@ namespace DroidOSS.App;
 /// The droidOSS server.
 /// </summary>
 /// <remarks>
-/// Default mode listens for INPUT packets and drives a virtual pad with them.
+/// Default mode listens for phones. Each one that says HELLO is given a pad
+/// slot, and gets it taken away again when it says BYE or simply goes quiet.
 ///
 /// <c>--demo</c> keeps B0's self-driven sweep. It is opt-in rather than always-on
-/// because both paths write to the same pad: the sweep and incoming packets would
-/// fight, last writer wins, and the stick would jitter between the circle and
-/// whatever the phone is doing — which looks exactly like a network bug. As a
-/// flag it stays useful as a zero-dependency "is the driver still alive?" check
-/// that involves neither Python nor the network.
+/// because it drives a pad directly, bypassing sessions entirely — useful
+/// precisely for that reason when something breaks and you need to know whether
+/// the driver or the network is at fault, since it involves neither Python nor a
+/// socket.
 /// </remarks>
 internal static class Program
 {
-    private const int PadSlot = 0;   // one client for now; slot assignment is B3
+    /// <summary>The pad <c>--demo</c> drives. Real sessions are assigned slots by the server.</summary>
+    private const int DemoSlot = 0;
 
     private static async Task<int> Main(string[] args)
     {
@@ -48,35 +49,20 @@ internal static class Program
                 // Zero/zero is the driver assigning an LED index, not a game
                 // asking for vibration. Only report the real ones.
                 if (e.LargeMotor == 0 && e.SmallMotor == 0) return;
-                Console.WriteLine($"  rumble: large={e.LargeMotor} small={e.SmallMotor}");
+                Console.WriteLine($"  rumble: pad {e.Slot}  large={e.LargeMotor} small={e.SmallMotor}");
             };
 
-            backend.Connect(PadSlot);
-
-            var exitCode = demoMode
+            return demoMode
                 ? await RunDemoAsync(backend)
                 : await RunServerAsync(backend);
-
-            // Zero the state and let the driver see it BEFORE unplugging. Some
-            // games latch the last state they saw when a pad disappears, so
-            // unplugging mid-input leaves the stick stuck.
-            Console.WriteLine();
-            Console.WriteLine("Zeroing state...");
-            backend.Submit(PadSlot, PadState.Neutral);
-
-            Console.WriteLine("Unplugging...");
-            backend.Disconnect(PadSlot);
-
-            Console.WriteLine("Done.");
-            return exitCode;
         }
     }
 
-    /// <summary>Listens for packets and drives the pad with them.</summary>
+    /// <summary>Listens for phones and gives each one a pad.</summary>
     private static async Task<int> RunServerAsync(IPadBackend backend)
     {
-        var server = new PadServer(backend, PadSlot);
-        using var listener = new UdpInputListener(server);
+        var sessions = new SessionManager(backend);
+        using var listener = new UdpSessionListener(sessions);
 
         try
         {
@@ -91,23 +77,60 @@ internal static class Program
             return 1;
         }
 
-        Console.WriteLine("Virtual controller connected. Listening for input.");
-        Console.WriteLine();
-        Console.WriteLine("  Point your phone at:");
+        sessions.SessionOpened += (_, e) =>
+            Console.WriteLine($"  + pad {e.Slot}  {e.Client}  connected");
+
+        sessions.SessionClosed += (_, e) =>
+            Console.WriteLine($"  - pad {e.Slot}  {e.Client}  gone ({Describe(e.Reason)})");
+
+        Console.WriteLine("Waiting for a phone. Point it at:");
         foreach (var address in LocalAddresses())
             Console.WriteLine($"      {address}:{Protocol.InputPort}");
         Console.WriteLine();
         Console.WriteLine("  Or test with:  py tools/fake_phone.py --host 127.0.0.1");
         Console.WriteLine();
-        Console.WriteLine("Press Ctrl+C to stop.");
+        Console.WriteLine($"Up to {IPadBackend.MaxPads} phones. Press Ctrl+C to stop.");
         Console.WriteLine();
 
         using var cts = CancelOnCtrlC();
-        var listening = listener.ListenAsync(cts.Token);
-        var reporting = ReportStatusAsync(server, listener, cts.Token);
 
-        await Task.WhenAll(listening, reporting);
+        await Task.WhenAll(
+            listener.ListenAsync(cts.Token),
+            SweepAsync(sessions, cts.Token),
+            ReportStatusAsync(sessions, cts.Token));
+
+        // Every remaining session is zeroed and unplugged, in that order — the
+        // manager owns that ordering so it cannot be got wrong here.
+        Console.WriteLine();
+        Console.WriteLine("Disconnecting pads...");
+        sessions.CloseAll();
+
+        Console.WriteLine("Done.");
         return 0;
+    }
+
+    /// <summary>
+    /// Drops phones that have stopped sending.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the receive loop on purpose: a phone whose battery died
+    /// sends nothing at all, so nothing in the receive path would ever run to
+    /// notice. Ten times a second is far finer than the two-second timeout needs
+    /// and costs nothing — the sweep walks at most four entries.
+    /// </remarks>
+    private static async Task SweepAsync(SessionManager sessions, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+                sessions.SweepTimeouts();
+        }
+        catch (OperationCanceledException)
+        {
+            // Ctrl+C, expected.
+        }
     }
 
     /// <summary>B0's self-driven sweep, kept for smoke-testing the driver.</summary>
@@ -125,6 +148,8 @@ internal static class Program
 
         using var cts = CancelOnCtrlC();
 
+        backend.Connect(DemoSlot);
+
         var state = PadState.Neutral;   // reused every tick, never reallocated
         var clock = Stopwatch.StartNew();
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(8));
@@ -136,7 +161,7 @@ internal static class Program
                 var angle = clock.Elapsed.TotalSeconds / sweepPeriodSeconds * 2 * Math.PI;
                 state.ThumbLX = (short)(Math.Cos(angle) * amplitude);
                 state.ThumbLY = (short)(Math.Sin(angle) * amplitude);
-                backend.Submit(PadSlot, in state);
+                backend.Submit(DemoSlot, in state);
             }
         }
         catch (OperationCanceledException)
@@ -144,45 +169,57 @@ internal static class Program
             // Ctrl+C, expected.
         }
 
+        // Zero before unplugging, for the same reason sessions do.
+        Console.WriteLine();
+        Console.WriteLine("Zeroing state...");
+        backend.Submit(DemoSlot, PadState.Neutral);
+
+        Console.WriteLine("Unplugging...");
+        backend.Disconnect(DemoSlot);
+
+        Console.WriteLine("Done.");
         return 0;
     }
 
-    /// <summary>Prints a status line once a second while packets flow.</summary>
+    /// <summary>Prints one line per connected phone, once a second.</summary>
     private static async Task ReportStatusAsync(
-        PadServer server, UdpInputListener listener, CancellationToken cancellationToken)
+        SessionManager sessions, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
-        var lastApplied = 0L;
-        var lastSeen = false;
+        // Applied count per slot at the last tick, so the difference is a rate.
+        var previous = new long[IPadBackend.MaxPads];
+        var lastDropped = 0L;
 
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                var applied = server.Applied;
-                var rate = applied - lastApplied;
-                lastApplied = applied;
-
-                if (rate == 0)
+                foreach (var session in sessions.Snapshot())
                 {
-                    // Only say it once, rather than every second forever.
-                    if (lastSeen)
-                    {
-                        Console.WriteLine("  ...silence. The pad holds its last position (B3 fixes that).");
-                        lastSeen = false;
-                    }
-                    continue;
+                    var rate = session.Applied - previous[session.Slot];
+                    previous[session.Slot] = session.Applied;
+
+                    var state = session.LastState;
+                    Console.WriteLine(
+                        $"    pad {session.Slot}  {session.Client}  " +
+                        $"LX={state.ThumbLX,7} LY={state.ThumbLY,7}  " +
+                        $"btn=0x{state.Buttons:X4}  ~{rate} Hz");
                 }
 
-                lastSeen = true;
-                var state = server.LastApplied;
-                Console.WriteLine(
-                    $"  {listener.LastSender}  " +
-                    $"LX={state.ThumbLX,7} LY={state.ThumbLY,7}  " +
-                    $"btn=0x{state.Buttons:X4}  " +
-                    $"~{rate} Hz  " +
-                    $"applied={server.Applied} stale={server.Stale} bad={server.Malformed}");
+                // Only mentioned when it changes. A climbing unknown count is
+                // the signature of a phone that thinks it is connected while the
+                // server has never heard of it — worth saying out loud, because
+                // it is otherwise invisible and maddening to diagnose.
+                var dropped = sessions.Malformed + sessions.UnknownSender + sessions.Stale;
+                if (dropped != lastDropped)
+                {
+                    lastDropped = dropped;
+                    Console.WriteLine(
+                        $"    dropped: {sessions.Malformed} bad, " +
+                        $"{sessions.Stale} stale, " +
+                        $"{sessions.UnknownSender} from unknown senders");
+                }
             }
         }
         catch (OperationCanceledException)
@@ -190,6 +227,14 @@ internal static class Program
             // Ctrl+C, expected.
         }
     }
+
+    private static string Describe(SessionCloseReason? reason) => reason switch
+    {
+        SessionCloseReason.Bye => "said goodbye",
+        SessionCloseReason.Timeout => "timed out",
+        SessionCloseReason.ServerShutdown => "server stopping",
+        _ => "unknown",
+    };
 
     private static CancellationTokenSource CancelOnCtrlC()
     {
