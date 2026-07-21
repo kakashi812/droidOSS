@@ -1,34 +1,33 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using DroidOSS.Core;
 using DroidOSS.ViGEm;
 
 namespace DroidOSS.App;
 
 /// <summary>
-/// B0 — prove the driver works.
+/// The droidOSS server.
 /// </summary>
 /// <remarks>
-/// No phone, no network. This exists to demonstrate that a controller which does
-/// not physically exist can appear to Windows and move, which is the one part of
-/// this project that could have turned out to be impossible.
+/// Default mode listens for INPUT packets and drives a virtual pad with them.
 ///
-/// Everything here is scaffolding except the shutdown path, which follows the
-/// zero-then-unplug rule that the real server depends on.
+/// <c>--demo</c> keeps B0's self-driven sweep. It is opt-in rather than always-on
+/// because both paths write to the same pad: the sweep and incoming packets would
+/// fight, last writer wins, and the stick would jitter between the circle and
+/// whatever the phone is doing — which looks exactly like a network bug. As a
+/// flag it stays useful as a zero-dependency "is the driver still alive?" check
+/// that involves neither Python nor the network.
 /// </remarks>
 internal static class Program
 {
-    /// <summary>How often we push a new state. 125 Hz is the rate the phone will send at.</summary>
-    private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(8);
+    private const int PadSlot = 0;   // one client for now; slot assignment is B3
 
-    /// <summary>Seconds for the stick to complete one full circle.</summary>
-    private const double SweepPeriodSeconds = 2.0;
-
-    /// <summary>How far from centre to push the stick. Short of the rim so it reads as deliberate.</summary>
-    private const double SweepAmplitude = 0.85 * short.MaxValue;
-
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
-        Console.WriteLine("droidOSS — B0: virtual pad test");
+        var demoMode = args.Contains("--demo", StringComparer.OrdinalIgnoreCase);
+
+        Console.WriteLine("droidOSS server");
         Console.WriteLine();
 
         ViGEmPadBackend backend;
@@ -45,82 +44,189 @@ internal static class Program
         using (backend)
         {
             backend.RumbleReceived += (_, e) =>
-                Console.WriteLine($"  rumble on pad {e.Slot}: large={e.LargeMotor} small={e.SmallMotor}");
+            {
+                // Zero/zero is the driver assigning an LED index, not a game
+                // asking for vibration. Only report the real ones.
+                if (e.LargeMotor == 0 && e.SmallMotor == 0) return;
+                Console.WriteLine($"  rumble: large={e.LargeMotor} small={e.SmallMotor}");
+            };
 
-            const int slot = 0;
-            backend.Connect(slot);
+            backend.Connect(PadSlot);
 
-            Console.WriteLine("Virtual controller connected.");
-            Console.WriteLine();
-            Console.WriteLine("  Open joy.cpl (Win+R, type 'joy.cpl') and click Properties.");
-            Console.WriteLine("  The left stick should be tracing a circle on its own.");
-            Console.WriteLine();
-            Console.WriteLine("Press Ctrl+C to unplug it cleanly.");
-            Console.WriteLine();
+            var exitCode = demoMode
+                ? await RunDemoAsync(backend)
+                : await RunServerAsync(backend);
 
-            await SweepUntilCancelled(backend, slot);
-
-            // The rule that matters: neutralise the state and let the driver see it
-            // BEFORE unplugging. A game that latches the last state it saw would
-            // otherwise hold the stick down forever.
+            // Zero the state and let the driver see it BEFORE unplugging. Some
+            // games latch the last state they saw when a pad disappears, so
+            // unplugging mid-input leaves the stick stuck.
             Console.WriteLine();
             Console.WriteLine("Zeroing state...");
-            backend.Submit(slot, PadState.Neutral);
+            backend.Submit(PadSlot, PadState.Neutral);
 
             Console.WriteLine("Unplugging...");
-            backend.Disconnect(slot);
+            backend.Disconnect(PadSlot);
+
+            Console.WriteLine("Done.");
+            return exitCode;
+        }
+    }
+
+    /// <summary>Listens for packets and drives the pad with them.</summary>
+    private static async Task<int> RunServerAsync(IPadBackend backend)
+    {
+        var server = new PadServer(backend, PadSlot);
+        using var listener = new UdpInputListener(server);
+
+        try
+        {
+            listener.Bind();
+        }
+        catch (SocketException ex)
+        {
+            Console.Error.WriteLine($"Could not bind UDP port {Protocol.InputPort}.");
+            Console.Error.WriteLine("Another copy of the server is probably already running.");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"Details: {ex.Message}");
+            return 1;
         }
 
-        Console.WriteLine("Done. The controller should be gone from joy.cpl.");
+        Console.WriteLine("Virtual controller connected. Listening for input.");
+        Console.WriteLine();
+        Console.WriteLine("  Point your phone at:");
+        foreach (var address in LocalAddresses())
+            Console.WriteLine($"      {address}:{Protocol.InputPort}");
+        Console.WriteLine();
+        Console.WriteLine("  Or test with:  py tools/fake_phone.py --host 127.0.0.1");
+        Console.WriteLine();
+        Console.WriteLine("Press Ctrl+C to stop.");
+        Console.WriteLine();
+
+        using var cts = CancelOnCtrlC();
+        var listening = listener.ListenAsync(cts.Token);
+        var reporting = ReportStatusAsync(server, listener, cts.Token);
+
+        await Task.WhenAll(listening, reporting);
         return 0;
     }
 
-    /// <summary>Sweeps the left stick in a circle until Ctrl+C.</summary>
-    private static async Task SweepUntilCancelled(IPadBackend backend, int slot)
+    /// <summary>B0's self-driven sweep, kept for smoke-testing the driver.</summary>
+    private static async Task<int> RunDemoAsync(IPadBackend backend)
     {
-        using var cts = new CancellationTokenSource();
+        const double sweepPeriodSeconds = 2.0;
+        const double amplitude = 0.85 * short.MaxValue;
 
-        Console.CancelKeyPress += (_, e) =>
-        {
-            e.Cancel = true;   // we want to shut down tidily, not be killed
-            cts.Cancel();
-        };
+        Console.WriteLine("Demo mode — sweeping the stick. No socket is bound.");
+        Console.WriteLine();
+        Console.WriteLine("  Open joy.cpl and click Properties to watch it.");
+        Console.WriteLine();
+        Console.WriteLine("Press Ctrl+C to stop.");
+        Console.WriteLine();
 
-        // Reused across every tick — nothing in this loop allocates.
-        var state = PadState.Neutral;
+        using var cts = CancelOnCtrlC();
 
+        var state = PadState.Neutral;   // reused every tick, never reallocated
         var clock = Stopwatch.StartNew();
-        var lastReport = TimeSpan.Zero;
-        var ticks = 0L;
-
-        using var timer = new PeriodicTimer(Tick);
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(8));
 
         try
         {
             while (await timer.WaitForNextTickAsync(cts.Token))
             {
-                var angle = clock.Elapsed.TotalSeconds / SweepPeriodSeconds * 2 * Math.PI;
-
-                state.ThumbLX = (short)(Math.Cos(angle) * SweepAmplitude);
-                state.ThumbLY = (short)(Math.Sin(angle) * SweepAmplitude);
-
-                backend.Submit(slot, in state);
-                ticks++;
-
-                // A once-a-second heartbeat, so it is obvious the loop is alive
-                // and roughly on rate.
-                if (clock.Elapsed - lastReport < TimeSpan.FromSeconds(1)) continue;
-
-                lastReport = clock.Elapsed;
-                var rate = ticks / clock.Elapsed.TotalSeconds;
-                Console.WriteLine(
-                    $"  t={clock.Elapsed.TotalSeconds,5:F1}s  " +
-                    $"LX={state.ThumbLX,7}  LY={state.ThumbLY,7}  ~{rate:F0} Hz");
+                var angle = clock.Elapsed.TotalSeconds / sweepPeriodSeconds * 2 * Math.PI;
+                state.ThumbLX = (short)(Math.Cos(angle) * amplitude);
+                state.ThumbLY = (short)(Math.Sin(angle) * amplitude);
+                backend.Submit(PadSlot, in state);
             }
         }
         catch (OperationCanceledException)
         {
-            // Ctrl+C. Expected.
+            // Ctrl+C, expected.
+        }
+
+        return 0;
+    }
+
+    /// <summary>Prints a status line once a second while packets flow.</summary>
+    private static async Task ReportStatusAsync(
+        PadServer server, UdpInputListener listener, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        var lastApplied = 0L;
+        var lastSeen = false;
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var applied = server.Applied;
+                var rate = applied - lastApplied;
+                lastApplied = applied;
+
+                if (rate == 0)
+                {
+                    // Only say it once, rather than every second forever.
+                    if (lastSeen)
+                    {
+                        Console.WriteLine("  ...silence. The pad holds its last position (B3 fixes that).");
+                        lastSeen = false;
+                    }
+                    continue;
+                }
+
+                lastSeen = true;
+                var state = server.LastApplied;
+                Console.WriteLine(
+                    $"  {listener.LastSender}  " +
+                    $"LX={state.ThumbLX,7} LY={state.ThumbLY,7}  " +
+                    $"btn=0x{state.Buttons:X4}  " +
+                    $"~{rate} Hz  " +
+                    $"applied={server.Applied} stale={server.Stale} bad={server.Malformed}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Ctrl+C, expected.
+        }
+    }
+
+    private static CancellationTokenSource CancelOnCtrlC()
+    {
+        var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;   // shut down tidily rather than being killed
+            cts.Cancel();
+        };
+        return cts;
+    }
+
+    /// <summary>
+    /// This machine's LAN addresses — what gets typed into the phone.
+    /// </summary>
+    /// <remarks>
+    /// Loopback is excluded because it is useless to a phone. Several may be
+    /// listed when there is both Wi-Fi and Ethernet, or a VM adapter; showing all
+    /// of them beats guessing wrong.
+    /// </remarks>
+    private static IEnumerable<IPAddress> LocalAddresses()
+    {
+        IPAddress[] addresses;
+        try
+        {
+            addresses = Dns.GetHostAddresses(Dns.GetHostName());
+        }
+        catch (SocketException)
+        {
+            yield break;
+        }
+
+        foreach (var address in addresses)
+        {
+            if (address.AddressFamily != AddressFamily.InterNetwork) continue;
+            if (IPAddress.IsLoopback(address)) continue;
+            yield return address;
         }
     }
 
