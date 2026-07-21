@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 1 — What are we actually building?</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part I</a>
+    <span class="now">01 / 12</span>
+  </div>
+  <div class="progress"><div style="width:8.3%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter One <span class="badge b-1">gentle</span></div>
+  <h1>What are we actually building?</h1>
+  <p class="lede">Before any code, we need to agree on what the goal is — and see why it's harder than "make the phone send button presses."</p>
+</div>
+
+<div class="prereq"><b>Assumed knowledge:</b> none. If you've plugged in a game controller before, you're qualified.</div>
+
+<h2>The goal, in one sentence</h2>
+
+<p>You have an old Android phone in a drawer. You want to pick it up, tap a button on its screen, and have your character jump in a game running on your Windows PC — with the game treating that phone as a completely ordinary Xbox controller.</p>
+
+<p>That's it. That's the whole product. But sitting inside that sentence is a surprising amount of machinery, and the goal of this book is that by the end you'll understand every piece of it.</p>
+
+<h2>Two halves and a gap</h2>
+
+<p>Whatever else happens, the system has to have two programs in it, because there are two devices.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 210" role="img" aria-label="Client and server split across a gap">
+  <rect class="s-box-b" x="35" y="40" width="220" height="110" rx="10"/>
+  <text class="s-t" x="145" y="72" text-anchor="middle" font-size="15">The client</text>
+  <text class="s-t-sm" x="145" y="96" text-anchor="middle">an app on your phone</text>
+  <text class="s-t-sm" x="145" y="116" text-anchor="middle">draws buttons, reads your thumbs</text>
+  <text class="s-lbl" x="145" y="140" text-anchor="middle">android</text>
+
+  <rect class="s-box-a" x="445" y="40" width="220" height="110" rx="10"/>
+  <text class="s-t" x="555" y="72" text-anchor="middle" font-size="15">The server</text>
+  <text class="s-t-sm" x="555" y="96" text-anchor="middle">a program on your PC</text>
+  <text class="s-t-sm" x="555" y="116" text-anchor="middle">receives, then pretends to be a pad</text>
+  <text class="s-lbl" x="555" y="140" text-anchor="middle">windows</text>
+
+  <path class="s-arr-a" d="M262 95 H438" marker-end="url(#c1)"/>
+  <text class="s-em" x="350" y="86" text-anchor="middle">the gap</text>
+  <text class="s-t-sm" x="350" y="114" text-anchor="middle">Wi-Fi, in our case</text>
+
+  <text class="s-t-sm" x="350" y="180" text-anchor="middle">Almost every design decision in this book is really a decision about one of these three things.</text>
+  <defs><marker id="c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+</figure>
+
+<div class="define">
+  <span class="term">Client and server</span>
+  <p>These words sound grand but mean something simple. The <strong>server</strong> is the program that sits there waiting, listening. The <strong>client</strong> is the program that reaches out and starts the conversation.</p>
+  <p>Your phone is the client because it's the one that goes looking for a PC. The PC is the server because it waits to be found. That's the only reason those names apply — it has nothing to do with which machine is more powerful.</p>
+</div>
+
+<h2>What a controller actually <em>is</em>, to a computer</h2>
+
+<p>Here's the first thing that trips people up. When you imagine a gamepad, you probably picture <em>events</em>: "A got pressed," "the stick moved left." That's how it feels to use one.</p>
+
+<p>But that's not what a controller sends. A controller doesn't announce events. It answers a question, over and over, forever, hundreds of times a second. The question is: <strong>"what does your entire body look like right now?"</strong></p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 260" role="img" aria-label="A controller reports its complete state, not events">
+  <text class="s-lbl" x="35" y="26">What you imagine it sends</text>
+  <rect class="s-box-r" x="35" y="38" width="270" height="96" rx="8"/>
+  <text class="s-t-mono" x="55" y="62">"A was pressed"</text>
+  <text class="s-t-mono" x="55" y="84">"stick moved to the left"</text>
+  <text class="s-t-mono" x="55" y="106">"A was released"</text>
+  <text class="s-t-sm" x="55" y="126" fill="var(--red)">events — things that happened</text>
+
+  <text class="s-lbl" x="395" y="26">What it actually sends</text>
+  <rect class="s-box-g" x="395" y="38" width="270" height="96" rx="8"/>
+  <text class="s-t-mono" x="415" y="62">A:down B:up X:up Y:up  LX:−31000</text>
+  <text class="s-t-mono" x="415" y="84">A:down B:up X:up Y:up  LX:−31000</text>
+  <text class="s-t-mono" x="415" y="106">A:up   B:up X:up Y:up  LX:0</text>
+  <text class="s-t-sm" x="415" y="126" fill="var(--green)">state — a complete snapshot, every time</text>
+
+  <rect class="s-box" x="120" y="168" width="460" height="62" rx="8"/>
+  <text class="s-t" x="350" y="192" text-anchor="middle">A full photograph of the controller, ~125 times per second</text>
+  <text class="s-t-sm" x="350" y="214" text-anchor="middle">even when absolutely nothing has changed</text>
+</svg>
+</div>
+<figcaption><b>This distinction looks pedantic right now. It isn't.</b> It quietly decides how we design the network protocol in Chapter 7, and it's the reason our system will survive a bad Wi-Fi connection gracefully instead of getting stuck.</figcaption>
+</figure>
+
+<div class="analogy">
+  <span class="lb">Think of it this way</span>
+  <p>An event-based controller is like a friend narrating a football match over the phone: <em>"he's passing… he's shooting…"</em> If the line cuts out for two seconds, you've permanently lost that information. You have to ask them to catch you up.</p>
+  <p>A state-based controller is like a live video feed. If it glitches for two seconds, you don't need catching up — the next frame shows you exactly where everything is. Nothing was lost, because every frame is complete on its own.</p>
+</div>
+
+<h2>What's in that snapshot</h2>
+
+<p>An Xbox controller's complete state is smaller than you'd guess. Everything it can possibly express fits in twelve bytes:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="The three kinds of input on a gamepad">
+  <rect class="s-box-a" x="35" y="35" width="195" height="150" rx="10"/>
+  <text class="s-lbl" x="132" y="60" text-anchor="middle">kind 1</text>
+  <text class="s-t" x="132" y="84" text-anchor="middle" font-size="15">Buttons</text>
+  <circle cx="112" cy="118" r="13" fill="var(--accent-bg)" stroke="var(--accent)" stroke-width="1.5"/>
+  <circle cx="152" cy="118" r="13" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="s-t-sm" x="132" y="152" text-anchor="middle">on or off. nothing between.</text>
+  <text class="s-t-sm" x="132" y="170" text-anchor="middle">A, B, X, Y, d-pad, shoulders…</text>
+
+  <rect class="s-box-b" x="252" y="35" width="195" height="150" rx="10"/>
+  <text class="s-lbl" x="350" y="60" text-anchor="middle">kind 2</text>
+  <text class="s-t" x="350" y="84" text-anchor="middle" font-size="15">Sticks</text>
+  <circle cx="350" cy="120" r="24" fill="var(--blue-bg)" stroke="var(--blue)" stroke-width="1.5"/>
+  <line x1="350" y1="120" x2="368" y2="104" stroke="var(--blue)" stroke-width="2.5"/>
+  <circle cx="368" cy="104" r="5" fill="var(--blue)"/>
+  <text class="s-t-sm" x="350" y="160" text-anchor="middle">a position, not a direction</text>
+  <text class="s-t-sm" x="350" y="176" text-anchor="middle">two numbers each: X and Y</text>
+
+  <rect class="s-box-g" x="469" y="35" width="196" height="150" rx="10"/>
+  <text class="s-lbl" x="567" y="60" text-anchor="middle">kind 3</text>
+  <text class="s-t" x="567" y="84" text-anchor="middle" font-size="15">Triggers</text>
+  <rect x="530" y="105" width="74" height="14" rx="7" fill="var(--surface)" stroke="var(--green)" stroke-width="1.5"/>
+  <rect x="530" y="105" width="46" height="14" rx="7" fill="var(--green)"/>
+  <text class="s-t-sm" x="567" y="145" text-anchor="middle">how <tspan font-style="italic">hard</tspan> you're squeezing</text>
+  <text class="s-t-sm" x="567" y="163" text-anchor="middle">0 = released, 255 = flat out</text>
+
+  <text class="s-em" x="350" y="215" text-anchor="middle">Kinds 2 and 3 are why this project can't be faked with keyboard keys.</text>
+  <text class="s-t-sm" x="350" y="236" text-anchor="middle">A key is only ever on or off. It cannot express "70% of the way down."</text>
+</svg>
+</div>
+</figure>
+
+<div class="define">
+  <span class="term">Analog vs digital</span>
+  <p><strong>Digital</strong> means only two possible values — on or off. A button is digital. A keyboard key is digital.</p>
+  <p><strong>Analog</strong> means a whole range of values in between. A stick and a trigger are analog. This is what lets you walk slowly instead of sprinting, or gently feather a car's accelerator instead of flooring it.</p>
+  <p>Keep this word. It's the reason for a design decision we'll make in Chapter 3 that costs us real effort.</p>
+</div>
+
+<h2>Why this is harder than it sounds</h2>
+
+<p>Here's the naive plan almost everyone thinks of first:</p>
+
+<blockquote style="border-left:3px solid var(--line);margin:0 0 16px;padding-left:18px;color:var(--dim)">
+<em>"When the phone says A was pressed, my PC program presses the Space key. Done."</em>
+</blockquote>
+
+<p>You can build that in an afternoon, and it will genuinely work for some games. But it hits a wall fast:</p>
+
+<ul>
+  <li><strong>No analog.</strong> Your sticks now only do full-speed-or-nothing. Every game becomes sprint-or-stand-still.</li>
+  <li><strong>Wrong prompts.</strong> The game shows "Press <kbd>Space</kbd> to jump" instead of "Press Ⓐ to jump," because as far as it knows, you're on a keyboard.</li>
+  <li><strong>Many games just ignore it.</strong> Some read input in a way that bypasses fake keystrokes entirely.</li>
+  <li><strong>Steam won't see a controller.</strong> No Big Picture navigation, no controller configuration, none of it.</li>
+</ul>
+
+<p>So the real goal is more demanding than it first appeared. We don't want to <em>simulate someone using a keyboard</em>. We want the computer to genuinely believe a controller is plugged into it.</p>
+
+<div class="box">
+  <span class="lb">The actual target</span>
+  <p>Not "make the game respond to my phone." Instead: <strong>make Windows itself believe there is a real Xbox controller physically attached to this PC.</strong></p>
+  <p>Get that, and every game works automatically, forever, with no per-game effort. Chapter 2 explains why that's possible at all, and Chapter 3 explains how.</p>
+</div>
+
+<details>
+<summary>Wait — isn't there an app that already does this?<span class="tag">context</span></summary>
+<div class="dd">
+<p>Yes, several. The best-known is <strong>DroidJoy</strong>, a closed-source Windows + Android product. It supports up to four phones at once, has a full button layout, and does exactly what this book describes. There are open-source ones too — PadConnect, Joy2DroidX, VirtualGamePad — and we'll dissect all of them in Chapter 12.</p>
+<p>So why build your own? Because the interesting part isn't the product, it's the layers. This project touches touchscreen input handling, real-time networking, binary protocol design, and Windows kernel drivers — a genuinely broad slice of computing, all in service of something you can hold in your hands and play a game with. It's an unusually good thing to learn on.</p>
+<p>And there's real room to beat them. By Chapter 12 you'll see specific things every one of these projects is missing.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>The system is two programs — a <strong>client</strong> on the phone, a <strong>server</strong> on the PC — plus the gap between them.</li>
+    <li>Controllers don't send <strong>events</strong> ("A was pressed"). They send <strong>state</strong> — a complete snapshot of every button and stick, over and over, ~125 times a second.</li>
+    <li>State-based reporting is self-healing: if a snapshot goes missing, the next one carries the full truth anyway.</li>
+    <li>There are three kinds of input: digital <strong>buttons</strong>, and analog <strong>sticks</strong> and <strong>triggers</strong>.</li>
+    <li><strong>Analog</strong> input is why faking keyboard presses isn't good enough.</li>
+    <li>The real goal is to make Windows believe a physical controller is attached — not to simulate a person typing.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="index.html"><span class="dir">← Back</span><span class="ttl">Contents</span></a>
+  <a href="ch02.html" class="next"><span class="dir">Next →</span><span class="ttl">2. How a game hears a button press</span></a>
+</div>
+
+</div>
+</body>
+</html>

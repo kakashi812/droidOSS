@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 8 — Designing the message</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part III</a>
+    <span class="now">08 / 12</span>
+  </div>
+  <div class="progress"><div style="width:66.6%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Eight <span class="badge b-3">deeper</span></div>
+  <h1>Designing the message</h1>
+  <p class="lede">You're sending twenty bytes, 125 times a second, forever. This chapter decides exactly which twenty.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 7:</b> UDP, full state per packet, sequence numbers. <b>And Ch 4:</b> the 12-byte controller state Windows expects.</div>
+
+<h2>What a protocol is</h2>
+
+<div class="define">
+  <span class="term">Protocol</span>
+  <p>An agreement between two programs about what the bytes mean. Not a technology or a library — just a shared convention. "Byte 8 and 9 are the button bitmask" is a protocol, provided both sides believe it.</p>
+  <p>Get it wrong on one side and you don't get an error message. You get a stick that moves when you press Ⓑ, and a long confusing evening.</p>
+</div>
+
+<h2>Why not JSON?</h2>
+
+<p>The instinct from web programming is to send something readable:</p>
+
+<pre><code>{ "buttons": 4096, "leftStickX": -31000, "leftStickY": 0 }</code></pre>
+
+<p>It's self-describing and easy to debug. For most software it's the right default. Here it isn't, and it's worth understanding why rather than taking it on faith.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="JSON compared with fixed binary layout">
+  <rect class="s-box-r" x="30" y="28" width="310" height="200" rx="10"/>
+  <text class="s-lbl" x="50" y="54">JSON · ~90 bytes</text>
+  <text class="s-t-sm" x="50" y="80">✓  Readable by eye</text>
+  <text class="s-t-sm" x="50" y="100">✓  Fields can be added freely</text>
+  <text class="s-t-sm" x="50" y="128" fill="var(--red)">✗  Must be parsed — scanning text,</text>
+  <text class="s-t-sm" x="50" y="146" fill="var(--red)">   finding quotes, converting digits</text>
+  <text class="s-t-sm" x="50" y="168" fill="var(--red)">✗  Allocates memory every packet</text>
+  <text class="s-t-sm" x="50" y="196" fill="var(--red)">✗  4× larger, 125 times a second</text>
+
+  <rect class="s-box-g" x="360" y="28" width="310" height="200" rx="10"/>
+  <text class="s-lbl" x="380" y="54">fixed binary · 20 bytes</text>
+  <text class="s-t-sm" x="380" y="80">✓  No parsing — read bytes 8–9,</text>
+  <text class="s-t-sm" x="380" y="98">   that <tspan font-style="italic">is</tspan> the number</text>
+  <text class="s-t-sm" x="380" y="120">✓  Zero memory allocation</text>
+  <text class="s-t-sm" x="380" y="142">✓  Copies straight into the driver</text>
+  <text class="s-t-sm" x="380" y="170" fill="var(--red)">✗  Unreadable without a decoder</text>
+  <text class="s-t-sm" x="380" y="192" fill="var(--red)">✗  Both sides must agree exactly</text>
+</svg>
+</div>
+</figure>
+
+<div class="box">
+  <span class="lb">The honest reason</span>
+  <p>It is <em>not</em> mainly about speed. Chapter 6 established that parsing time is irrelevant at this scale — JSON would work fine.</p>
+  <p>The real argument is <strong>allocation</strong>. JSON parsing creates new objects for every packet. At 125 packets a second, that's a steady stream of garbage for the runtime to clean up, and garbage collection is one of the few things that can cause a genuine, visible latency spike. Fixed binary lets you reuse a single buffer forever and never allocate at all.</p>
+  <p>The second argument is that our schema is <em>fixed by hardware</em>. A gamepad has had the same buttons for twenty years. The flexibility JSON buys us is flexibility we have no use for.</p>
+</div>
+
+<h2>The packet</h2>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 280" role="img" aria-label="The twenty byte input packet, field by field">
+  <text class="s-lbl" x="30" y="24">input packet · 20 bytes · little-endian</text>
+
+  <g>
+    <rect class="s-box" x="30"  y="42" width="32" height="48" rx="3"/>
+    <rect class="s-box" x="62"  y="42" width="32" height="48"/>
+    <rect class="s-box" x="94"  y="42" width="32" height="48"/>
+    <rect class="s-box-p" x="126" y="42" width="32" height="48"/>
+    <rect class="s-box-b" x="158" y="42" width="128" height="48" rx="3"/>
+    <rect class="s-box-a" x="286" y="42" width="64" height="48" rx="3"/>
+    <rect class="s-box-g" x="350" y="42" width="32" height="48"/>
+    <rect class="s-box-g" x="382" y="42" width="32" height="48"/>
+    <rect class="s-box-a" x="414" y="42" width="64" height="48"/>
+    <rect class="s-box-a" x="478" y="42" width="64" height="48"/>
+    <rect class="s-box-a" x="542" y="42" width="64" height="48"/>
+    <rect class="s-box-a" x="606" y="42" width="64" height="48" rx="3"/>
+  </g>
+
+  <g class="s-t-mono" text-anchor="middle">
+    <text x="46" y="62">u8</text>    <text x="46" y="80">DA</text>
+    <text x="78" y="62">u8</text>    <text x="78" y="80">ver</text>
+    <text x="110" y="62">u8</text>   <text x="110" y="80">typ</text>
+    <text x="142" y="62">u8</text>   <text x="142" y="80">pad</text>
+    <text x="222" y="62">u32</text>  <text x="222" y="80">seq</text>
+    <text x="318" y="62">u16</text>  <text x="318" y="80">buttons</text>
+    <text x="366" y="62">u8</text>   <text x="366" y="80">LT</text>
+    <text x="398" y="62">u8</text>   <text x="398" y="80">RT</text>
+    <text x="446" y="62">i16</text>  <text x="446" y="80">LX</text>
+    <text x="510" y="62">i16</text>  <text x="510" y="80">LY</text>
+    <text x="574" y="62">i16</text>  <text x="574" y="80">RX</text>
+    <text x="638" y="62">i16</text>  <text x="638" y="80">RY</text>
+  </g>
+
+  <g class="s-t-sm">
+    <text x="30" y="106">byte 0</text>
+    <text x="158" y="106">4</text>
+    <text x="286" y="106">8</text>
+    <text x="414" y="106">12</text>
+    <text x="648" y="106">20</text>
+  </g>
+
+  <path class="s-zone" d="M30 122 H158 M30 122 V132 M158 122 V132"/>
+  <text class="s-t-sm" x="94" y="148" text-anchor="middle">header</text>
+  <path class="s-zone" d="M158 122 H286 M158 122 V132 M286 122 V132"/>
+  <text class="s-t-sm" x="222" y="148" text-anchor="middle">ordering</text>
+  <path class="s-zone" d="M286 122 H670 M286 122 V132 M670 122 V132"/>
+  <text class="s-t-sm" x="478" y="148" text-anchor="middle">the payload — byte-for-byte what Windows wants</text>
+
+  <rect class="s-box" x="30" y="168" width="640" height="98" rx="8"/>
+  <text class="s-t-sm" x="50" y="192"><tspan font-family="monospace">DA</tspan>  a fixed marker byte. If it's missing, this isn't our packet — bin it without further thought.</text>
+  <text class="s-t-sm" x="50" y="214"><tspan font-family="monospace">ver</tspan> protocol version, so a future phone app and an old server can refuse each other politely.</text>
+  <text class="s-t-sm" x="50" y="236"><tspan font-family="monospace">typ</tspan> which kind of message this is — input, hello, goodbye, rumble.</text>
+  <text class="s-t-sm" x="50" y="258"><tspan font-family="monospace">pad</tspan> which of the four virtual controllers this belongs to. Chapter 11.</text>
+</svg>
+</div>
+</figure>
+
+<div class="box good">
+  <span class="lb">The design decision worth noticing</span>
+  <p>Bytes 8–19 are laid out <strong>exactly</strong> like the <code>XINPUT_GAMEPAD</code> structure from Chapter 4 — same order, same sizes, same ranges. That's deliberate.</p>
+  <p>It means the server does no conversion at all. It reads bytes off the wire and hands them almost directly to the driver. Fewer lines, fewer bugs, and nowhere for a units mix-up to hide.</p>
+  <p>General principle: <strong>when you control both ends, shape your wire format to match your output format.</strong> If you add a Linux backend later, <em>that</em> layer does the converting — because it's the exception, not the common case.</p>
+</div>
+
+<h2>Size, in perspective</h2>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 140" role="img" aria-label="Bandwidth use compared to everyday things">
+  <text class="s-lbl" x="30" y="24">data per second</text>
+
+  <rect class="s-box-g" x="150" y="34" width="6" height="24" rx="2"/>
+  <text class="s-t-sm" x="140" y="51" text-anchor="end">gamepad, 1 phone</text>
+  <text class="s-t-sm" x="166" y="51">2.5 KB/s</text>
+
+  <rect class="s-box-g" x="150" y="66" width="24" height="24" rx="2"/>
+  <text class="s-t-sm" x="140" y="83" text-anchor="end">gamepad, 4 phones</text>
+  <text class="s-t-sm" x="184" y="83">10 KB/s</text>
+
+  <rect class="s-box-b" x="150" y="98" width="500" height="24" rx="2"/>
+  <text class="s-t-sm" x="140" y="115" text-anchor="end">one Netflix stream</text>
+  <text class="s-t-sm" x="400" y="115" fill="var(--blue)">~625 KB/s — 250× more</text>
+</svg>
+</div>
+<figcaption><b>Bandwidth is a non-issue.</b> You could make the packet ten times larger and never notice. So don't contort the design to save bytes — optimise for clarity instead.</figcaption>
+</figure>
+
+<h2>The other messages</h2>
+
+<p>Input is the constant stream, but a few other things need saying occasionally. Byte 2 tells them apart.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Type</th><th>Direction</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>0x01</code> INPUT</td><td>phone → PC</td><td>The 20-byte snapshot. 125 times a second.</td></tr>
+<tr><td><code>0x02</code> HELLO</td><td>phone → PC</td><td>"I'm here." Server assigns a pad slot and plugs in a virtual controller.</td></tr>
+<tr><td><code>0x03</code> WELCOME</td><td>PC → phone</td><td>"You're pad 2." Also proves to the phone that a server exists here.</td></tr>
+<tr><td><code>0x04</code> BYE</td><td>phone → PC</td><td>Clean exit — unplug now rather than waiting for a timeout.</td></tr>
+<tr><td><code>0x05</code> RUMBLE</td><td>PC → phone</td><td>Vibration intensity from the game. Chapter 11.</td></tr>
+<tr><td><code>0x06</code> DISCOVER</td><td>broadcast</td><td>"Any servers out there?" Chapter 10.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box info">
+  <span class="lb">Notice what isn't there</span>
+  <p>There's no "are you still alive?" message. There doesn't need to be — <strong>the input stream is the heartbeat.</strong> A packet every 8 ms means silence is unmistakable: no INPUT for two seconds and the client is gone.</p>
+  <p>This is the second time fixed-rate sending has paid for itself, and it won't be the last. Chapter 11 builds the most important robustness behaviour in the whole project on exactly this.</p>
+</div>
+
+<h2>Reading and writing it</h2>
+
+<pre><code>// C# server — reading. No allocation, no parsing.
+if (buf[0] != 0xDA || buf[1] != PROTO_VERSION) return;   // not ours
+if (buf[2] != MSG_INPUT) { HandleControl(buf); return; }
+
+uint seq     = BitConverter.ToUInt32(buf, 4);
+if ((int)(seq - lastSeq) &lt;= 0) return;                   // stale — Ch 7
+lastSeq = seq;
+
+state.Buttons = BitConverter.ToUInt16(buf, 8);
+state.LeftTrigger  = buf[10];
+state.RightTrigger = buf[11];
+state.ThumbLX = BitConverter.ToInt16(buf, 12);
+state.ThumbLY = BitConverter.ToInt16(buf, 14);
+state.ThumbRX = BitConverter.ToInt16(buf, 16);
+state.ThumbRY = BitConverter.ToInt16(buf, 18);</code></pre>
+
+<details>
+<summary>Endianness — the one trap in binary protocols<span class="tag">important</span></summary>
+<div class="dd">
+<p>A 16-bit number occupies two bytes, and there are two conventions for which order they go in. This is called <strong>endianness</strong>.</p>
+<pre><code>the number 1000 (0x03E8) can be stored as:
+  little-endian:  E8 03      ← least significant byte first
+  big-endian:     03 E8      ← most significant byte first</code></pre>
+<p>Write little-endian and read big-endian and your number becomes 59395 instead of 1000. No error, no crash — just a stick behaving bizarrely.</p>
+<p><strong>For us it's easy:</strong> ARM (Android) and x86 (Windows) are both little-endian natively, so choosing little-endian costs nothing on either side. <code>BitConverter</code> in C# and <code>ByteBuffer.LITTLE_ENDIAN</code> in Kotlin will then agree by default.</p>
+<p>The trap is that Java and Kotlin's <code>ByteBuffer</code> defaults to <strong>big-endian</strong>. Forget to set it and everything silently breaks. Write it down in your protocol notes, set it explicitly on the Kotlin side, and never think about it again.</p>
+</div>
+</details>
+
+<details>
+<summary>Why a magic byte and a version number are worth 2 bytes<span class="tag">design rationale</span></summary>
+<div class="dd">
+<p><strong>The magic byte (<code>0xDA</code>).</strong> Your socket will receive things you didn't send — port scanners, another app's stray broadcast, a mis-typed IP address from a different program. Without a marker byte, garbage gets interpreted as a controller state and your character spasms. One byte turns "mysterious glitch" into "silently ignored."</p>
+<p><strong>The version byte.</strong> Someday you'll change the packet format — an extra axis, a new field. Users will have the old phone app and the new server, in every combination. With a version byte the server can say "this client is too old, please update." Without it, an old client's packets get read with the new layout and produce nonsense.</p>
+<p>It costs two bytes out of twenty and eliminates two whole categories of confusing bug report. Take the deal.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>A <strong>protocol</strong> is just an agreement about what the bytes mean — and mismatches fail silently, not loudly.</li>
+    <li><strong>Fixed binary beats JSON here</strong>, mainly because it lets you reuse one buffer and never allocate, avoiding garbage-collection spikes.</li>
+    <li>The packet is <strong>20 bytes</strong>: 4 header, 4 sequence, 12 payload.</li>
+    <li>The payload is laid out to <strong>match <code>XINPUT_GAMEPAD</code> exactly</strong>, so the server converts nothing.</li>
+    <li>Bandwidth is irrelevant — 250× less than a video stream. Optimise for clarity.</li>
+    <li>Five other message types handle joining, leaving, rumble and discovery — but there's <strong>no heartbeat</strong>, because the input stream already is one.</li>
+    <li>Pick <strong>little-endian</strong> and set it explicitly on the Kotlin side, which defaults the other way.</li>
+    <li>A <strong>magic byte</strong> and a <strong>version byte</strong> cost almost nothing and prevent two classes of baffling bug.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch07.html"><span class="dir">← Previous</span><span class="ttl">7. Choosing how to speak: UDP vs TCP</span></a>
+  <a href="ch09.html" class="next"><span class="dir">Next →</span><span class="ttl">9. Glass becomes a joystick</span></a>
+</div>
+
+</div>
+</body>
+</html>

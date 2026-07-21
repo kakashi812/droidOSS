@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 12 — Beyond the reference product</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part V</a>
+    <span class="now">12 / 12</span>
+  </div>
+  <div class="progress"><div style="width:100%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Twelve <span class="badge b-4">advanced</span></div>
+  <h1>Beyond the reference product</h1>
+  <p class="lede">What everyone else built, what they got wrong, and the specific places where you can beat all of them.</p>
+</div>
+
+<div class="prereq"><b>Builds on everything.</b> This chapter assumes you can now read an architecture and judge it.</div>
+
+<h2>The field</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Project</th><th>Stack</th><th>Transport</th><th>Virtual device</th><th>The interesting bit</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong><a href="https://grill2010.github.io/droidJoy.html">DroidJoy</a></strong><br><span style="color:var(--dim);font-size:12.5px">closed source</span></td>
+  <td>unknown</td>
+  <td>Wi-Fi + Bluetooth</td>
+  <td>ScpVBus</td>
+  <td>The reference. 4 clients, accelerometer, 14 buttons. Uses ViGEm's <em>predecessor</em>, hence its clunkier driver prerequisite.</td>
+</tr>
+<tr>
+  <td><strong><a href="https://github.com/Ishan09811/PadConnect">PadConnect</a></strong></td>
+  <td>Kotlin throughout</td>
+  <td>UDP</td>
+  <td>ViGEm + Linux</td>
+  <td>Closest to this book's design. Chose UDP explicitly for latency. No discovery — manual IP only.</td>
+</tr>
+<tr>
+  <td><strong><a href="https://github.com/OzymandiasTheGreat/Joy2DroidX-server">Joy2DroidX</a></strong><br><span style="color:var(--dim);font-size:12.5px">archived</span></td>
+  <td>Python</td>
+  <td>WebSocket</td>
+  <td>ViGEm + uinput</td>
+  <td>Emulates DualShock 4 too. Auto-downloads ViGEmBus and prompts to install — genuinely good setup UX worth copying.</td>
+</tr>
+<tr>
+  <td><strong><a href="https://kitswas.github.io/VirtualGamePad/">VirtualGamePad</a></strong></td>
+  <td>C++/Qt6<br><span style="color:var(--dim);font-size:12.5px">after C++→Rust→C#→back</span></td>
+  <td>TCP</td>
+  <td><span style="color:var(--red)">not ViGEm</span></td>
+  <td>The instructive one. See below.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>Notice the convergence: transports and languages vary wildly, but almost everyone lands on ViGEm, and everyone supporting Linux uses <code>uinput</code> behind an abstraction. That tells you which decisions are genuinely load-bearing and which are taste.</p>
+
+<h2>The one trade-off that decides everything</h2>
+
+<p>VirtualGamePad is worth studying closely, because it took the other branch of the single most consequential decision in this space — and paid the full price honestly and publicly.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 320" role="img" aria-label="The driver install fork and its downstream consequences">
+  <rect class="s-box" x="235" y="18" width="230" height="46" rx="8"/>
+  <text class="s-t" x="350" y="40" text-anchor="middle">Ship a kernel driver?</text>
+  <text class="s-t-sm" x="350" y="56" text-anchor="middle">installer · admin rights · UAC prompt</text>
+
+  <path class="s-arr-r" d="M285 66 L150 108" marker-end="url(#w1)"/>
+  <path class="s-arr-g" d="M415 66 L550 108" marker-end="url(#w2)"/>
+  <text class="s-t" x="192" y="92" text-anchor="middle" fill="var(--red)">no</text>
+  <text class="s-t" x="512" y="92" text-anchor="middle" fill="var(--green)">yes</text>
+
+  <rect class="s-box-r" x="25" y="112" width="290" height="44" rx="8"/>
+  <text class="s-t" x="170" y="133" text-anchor="middle">Fake keystrokes / injection</text>
+  <text class="s-t-sm" x="170" y="149" text-anchor="middle">VirtualGamePad's path</text>
+
+  <rect class="s-box" x="25" y="168" width="290" height="130" rx="8"/>
+  <text class="s-lbl" x="42" y="190">gains</text>
+  <text class="s-t-sm" x="42" y="210">Portable exe · no install · F-Droid-able</text>
+  <text class="s-lbl" x="42" y="236">loses</text>
+  <text class="s-t-sm" x="42" y="254">Analog · button prompts · Steam Input</text>
+  <text class="s-t-sm" x="42" y="270">Rumble · multiple pads</text>
+  <text class="s-t-sm" x="42" y="288" fill="var(--red)">Gamepad mode ships as "experimental, crashes"</text>
+
+  <rect class="s-box-g" x="385" y="112" width="290" height="44" rx="8"/>
+  <text class="s-t" x="530" y="133" text-anchor="middle">ViGEmBus virtual bus</text>
+  <text class="s-t-sm" x="530" y="149" text-anchor="middle">DroidJoy · PadConnect · Joy2DroidX · you</text>
+
+  <rect class="s-box" x="385" y="168" width="290" height="130" rx="8"/>
+  <text class="s-lbl" x="402" y="190">gains</text>
+  <text class="s-t-sm" x="402" y="210">Real XInput · analog · Steam Input</text>
+  <text class="s-t-sm" x="402" y="226">Rumble · 4 simultaneous pads</text>
+  <text class="s-lbl" x="402" y="252">loses</text>
+  <text class="s-t-sm" x="402" y="270">A frictionless first run</text>
+  <text class="s-t-sm" x="402" y="288" fill="var(--accent)">Plus: an unmaintained driver to worry about</text>
+
+  <defs>
+    <marker id="w1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--red)"/></marker>
+    <marker id="w2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption><b>This is not a mistake on their part — it's a priced trade.</b> They optimised for a driver-free portable download, which is what gets them onto F-Droid and removes the scariest step for non-technical users. The cost is that they can't reliably be a gamepad: their dependable mode is keyboard/mouse mapping, the approach Chapter 3 argued against.</figcaption>
+</figure>
+
+<div class="box">
+  <span class="lb">Their own roadmap says it plainly</span>
+  <p>Under ongoing experiments: <em>"True gamepad input on Windows — implemented but experiencing crashes."</em> Meanwhile multi-client support and Bluetooth are both listed as <strong>not planned</strong>.</p>
+  <p>Live issues at the time of writing include triggers not working at all, and Linux axis mapping and button-hold recognition being broken. None of which is embarrassing for a solo developer working during college breaks — it's just what this trade-off costs.</p>
+</div>
+
+<h3>What to steal from them</h3>
+
+<p>Plenty. GPLv3, distributed on F-Droid, no ads, no tracking, no telemetry, a portable binary, real Linux support, and USB alongside Wi-Fi. And their maintainer's stated philosophy, which is genuinely good judgement for a one-person project:</p>
+
+<blockquote style="border-left:3px solid var(--accent);margin:0 0 18px;padding-left:20px;font-size:17px">
+<em>"An app with less features is better than an abandoned one."</em>
+</blockquote>
+
+<h3>What to learn from them</h3>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 200" role="img" aria-label="Effort spent on the wrong layer">
+  <text class="s-lbl" x="30" y="24">where the effort went</text>
+
+  <rect class="s-box-r" x="30" y="36" width="640" height="52" rx="8"/>
+  <text class="s-t" x="50" y="60">The server language — rewritten four times</text>
+  <text class="s-t-mono" x="50" y="79">C++  →  Rust  →  C# WinUI 3  →  C++/Qt6</text>
+
+  <rect class="s-box" x="30" y="100" width="640" height="46" rx="8"/>
+  <text class="s-t-sm" x="50" y="122">The virtual device layer — stayed on the shaky injection API throughout</text>
+  <text class="s-t-sm" x="50" y="139" fill="var(--red)">…which is the layer that actually determines whether the product works</text>
+
+  <text class="s-em" x="350" y="178" text-anchor="middle">Chapter 6's warning, playing out in a real codebase over several years.</text>
+</svg>
+</div>
+<figcaption>Four rewrites of the layer that Chapter 6 showed contributes ~0.2 ms out of ~34 ms — while the load-bearing layer went untouched. Not because the author is careless, but because the language is <b>visible</b> and the driver layer is <b>invisible</b>. Visible problems attract effort.</figcaption>
+</figure>
+
+<h2>Where you can genuinely win</h2>
+
+<p>You're building after all of them, with the benefit of seeing their choices. Four openings:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 290" role="img" aria-label="Four opportunities to beat existing projects">
+  <rect class="s-box-g" x="30" y="25" width="640" height="56" rx="8"/>
+  <text class="s-t" x="50" y="48">1 · USB, via adb reverse</text>
+  <text class="s-t-sm" x="50" y="68">Lower and far steadier latency than Wi-Fi. DroidJoy doesn't offer it. This is the big one.</text>
+
+  <rect class="s-box-a" x="30" y="89" width="640" height="56" rx="8"/>
+  <text class="s-t" x="50" y="112">2 · Discovery that actually works</text>
+  <text class="s-t-sm" x="50" y="132">PadConnect makes you type an IP. A QR code beats every project in this table.</text>
+
+  <rect class="s-box-a" x="30" y="153" width="640" height="56" rx="8"/>
+  <text class="s-t" x="50" y="176">3 · Rumble</text>
+  <text class="s-t-sm" x="50" y="196">Most one-directional projects skip it entirely. It's the thing that makes glass feel like a device.</text>
+
+  <rect class="s-box-b" x="30" y="217" width="640" height="56" rx="8"/>
+  <text class="s-t" x="50" y="240">4 · Gyro aiming</text>
+  <text class="s-t-sm" x="50" y="260">DroidJoy advertises only an accelerometer. Proper fused gyro is strictly better and rarely done.</text>
+</svg>
+</div>
+</figure>
+
+<h3>The USB path, in detail</h3>
+
+<p>This is the most interesting item, so here's how it actually works.</p>
+
+<p>Android's developer tools include a command that tunnels a network port over the USB cable:</p>
+
+<pre><code>adb reverse tcp:27500 tcp:27500</code></pre>
+
+<p>After that, the phone can connect to <code>127.0.0.1:27500</code> — "itself" — and the traffic emerges on the PC. No Wi-Fi involved at all.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 200" role="img" aria-label="Wi-Fi path versus USB tunnel path">
+  <rect class="s-box-b" x="30" y="30" width="110" height="44" rx="7"/>
+  <text class="s-t-sm" x="85" y="57" text-anchor="middle">phone</text>
+  <path class="s-arr" d="M145 52 H215" marker-end="url(#x1)"/>
+  <rect class="s-box" x="220" y="30" width="110" height="44" rx="7"/>
+  <text class="s-t-sm" x="275" y="57" text-anchor="middle">router</text>
+  <path class="s-arr" d="M335 52 H405" marker-end="url(#x1)"/>
+  <rect class="s-box-a" x="410" y="30" width="110" height="44" rx="7"/>
+  <text class="s-t-sm" x="465" y="57" text-anchor="middle">PC</text>
+  <text class="s-t-sm" x="560" y="49">~8 ms, variable</text>
+  <text class="s-t-sm" x="560" y="66" fill="var(--red)">jitter from interference</text>
+
+  <rect class="s-box-b" x="30" y="120" width="110" height="44" rx="7"/>
+  <text class="s-t-sm" x="85" y="147" text-anchor="middle">phone</text>
+  <path class="s-arr-g" d="M145 142 H405" marker-end="url(#x2)"/>
+  <text class="s-t-sm" x="275" y="134" text-anchor="middle">USB cable</text>
+  <rect class="s-box-a" x="410" y="120" width="110" height="44" rx="7"/>
+  <text class="s-t-sm" x="465" y="147" text-anchor="middle">PC</text>
+  <text class="s-t-sm" x="560" y="139" fill="var(--green)">~1–2 ms</text>
+  <text class="s-t-sm" x="560" y="156" fill="var(--green)">essentially no jitter</text>
+
+  <text class="s-t-sm" x="350" y="192" text-anchor="middle">And the phone charges while you play — which quietly fixes Chapter 11's battery problem too.</text>
+  <defs>
+    <marker id="x1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker>
+    <marker id="x2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+  </defs>
+</svg>
+</div>
+</figure>
+
+<div class="box warn">
+  <span class="lb">The catch</span>
+  <p><code>adb reverse</code> requires USB debugging enabled in Android's developer options — a handful of steps most people have never done. So this can't be your <em>only</em> transport.</p>
+  <p>Ship it as an advanced option for people who care about latency. Those users are exactly the ones willing to enable a setting, and they're also the ones most likely to tell other people about your project.</p>
+</div>
+
+<h2>The build order, in one picture</h2>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 330" role="img" aria-label="Six phase build roadmap">
+  <line x1="58" y1="30" x2="58" y2="305" stroke="var(--line)" stroke-width="2"/>
+
+  <circle cx="58" cy="38" r="8" fill="var(--green)"/>
+  <text class="s-t" x="82" y="36">Phase 0 — Prove the driver works <tspan class="s-t-sm">· Ch 4</tspan></text>
+  <text class="s-t-sm" x="82" y="55">Console app, virtual pad, sweeping stick. Watch it in joy.cpl.</text>
+
+  <circle cx="58" cy="88" r="8" fill="var(--green)"/>
+  <text class="s-t" x="82" y="86">Phase 1 — Network, no Android <tspan class="s-t-sm">· Ch 5, 7, 8</tspan></text>
+  <text class="s-t-sm" x="82" y="105">Server parses packets, driven by a Python script. Keep it as your regression test.</text>
+
+  <circle cx="58" cy="138" r="8" fill="var(--green)"/>
+  <text class="s-t" x="82" y="136">Phase 2 — Minimum viable phone <tspan class="s-t-sm">· Ch 9</tspan></text>
+  <text class="s-t-sm" x="82" y="155">Hardcoded IP, four rectangles, one stick. Play a platformer. Don't polish yet.</text>
+
+  <circle cx="58" cy="188" r="8" fill="var(--accent)"/>
+  <text class="s-t" x="82" y="186">Phase 3 — Make it feel good <tspan class="s-t-sm">· Ch 9</tspan></text>
+  <text class="s-t-sm" x="82" y="205">Pointer IDs · floating origin · radial deadzone · full buttons · haptic tick on press.</text>
+
+  <circle cx="58" cy="238" r="8" fill="var(--accent)"/>
+  <text class="s-t" x="82" y="236">Phase 4 — Usable by someone else <tspan class="s-t-sm">· Ch 10, 11</tspan></text>
+  <text class="s-t-sm" x="82" y="255">Discovery · tray icon · timeout→zero→unplug · graceful missing-driver message.</text>
+
+  <circle cx="58" cy="288" r="8" fill="var(--blue)"/>
+  <text class="s-t" x="82" y="286">Phase 5 — Beat the reference <tspan class="s-t-sm">· this chapter</tspan></text>
+  <text class="s-t-sm" x="82" y="305">Rumble · 4 pads · gyro · custom layouts · <tspan fill="var(--blue)" font-weight="640">USB via adb reverse</tspan></text>
+</svg>
+</div>
+<figcaption>Ordered so every phase produces something runnable, and the parts that could fail outright are settled first.</figcaption>
+</figure>
+
+<h2>The ideas worth keeping</h2>
+
+<p>If you forget the specifics of ViGEm and pointer IDs, these generalise well past this project:</p>
+
+<ol>
+  <li><strong>Find the layer where the lie is cheapest.</strong> We didn't fight games or patch Steam — we slotted in below both, where a single false statement bought universal compatibility.</li>
+  <li><strong>Measure before optimising.</strong> The language felt like the performance decision. It was 0.6% of the budget. One real codebase rewrote it four times without fixing what mattered.</li>
+  <li><strong>Send state, not events.</strong> Self-sufficient messages made packet loss a non-event, which let us use UDP, which is what made it fast. One decision, three payoffs.</li>
+  <li><strong>Do the risky part first.</strong> The driver could have been impossible. Everything else was ordinary programming. Forty lines on day one removed all the doubt.</li>
+  <li><strong>Trade-offs are priced, not free.</strong> VirtualGamePad's driverless install and its unreliable gamepad mode are the same decision seen from two sides. Choose deliberately and accept the bill.</li>
+  <li><strong>Know when to stop.</strong> No encryption. No Bluetooth in v1. A threat model and a scope keep a solo project finishable — and a finished project beats an abandoned ambitious one.</li>
+</ol>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Everyone converges on <strong>ViGEm on Windows</strong> and <strong>uinput on Linux</strong>, behind an abstraction. Transport and language are where projects differ, and it matters least.</li>
+    <li>The <strong>driver-install decision</strong> determines everything downstream — you cannot have both a driverless install and a reliable virtual pad.</li>
+    <li>VirtualGamePad is the honest demonstration of the other branch, and worth reading for both its good judgement and its cautionary tale.</li>
+    <li>Effort follows <strong>visibility</strong>, not importance. Guard against that deliberately.</li>
+    <li>Your four openings: <strong>USB via <code>adb reverse</code></strong>, QR discovery, rumble, and proper gyro.</li>
+    <li>Build in phases where each one runs, and the riskiest comes first.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch11.html"><span class="dir">← Previous</span><span class="ttl">11. Rumble, multiplayer, and not breaking</span></a>
+  <a href="glossary.html" class="next"><span class="dir">Appendix →</span><span class="ttl">Glossary</span></a>
+</div>
+
+</div>
+</body>
+</html>

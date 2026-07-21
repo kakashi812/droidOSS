@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 2 — How a game hears a button press</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part I</a>
+    <span class="now">02 / 12</span>
+  </div>
+  <div class="progress"><div style="width:16.6%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Two <span class="badge b-1">gentle</span></div>
+  <h1>How a game hears a button press</h1>
+  <p class="lede">This is the most important chapter in the book. Everything else is built on the idea in it.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 1:</b> controllers report complete <em>state</em>, not events.</div>
+
+<h2>The question worth asking</h2>
+
+<p>Forget phones for a moment. Take an ordinary Xbox controller, plug it into a PC by USB, launch a game, and press Ⓐ. Your character jumps.</p>
+
+<p>Ask the naive question: <strong>how did the game find out?</strong></p>
+
+<p>The intuitive answer is that the game is somehow watching the controller. It isn't. Not even slightly. And once you see what actually happens, the entire phone project stops looking impossible and starts looking almost easy.</p>
+
+<h2>Games never talk to controllers</h2>
+
+<p>A game does not know what a USB port is. It has no code for reading electrical signals, no idea what brand of controller you own, and no way to communicate with hardware directly — modern operating systems specifically forbid ordinary programs from doing that.</p>
+
+<p>Instead, the game asks <strong>Windows</strong>. It calls a function that Windows provides, roughly meaning: <em>"Hey — what is controller number 0 doing right now?"</em> Windows replies with a snapshot. The game reads it and moves on.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 210" role="img" aria-label="The game asks Windows, Windows answers">
+  <rect class="s-box-g" x="60" y="55" width="180" height="90" rx="10"/>
+  <text class="s-t" x="150" y="90" text-anchor="middle" font-size="15">The game</text>
+  <text class="s-t-sm" x="150" y="112" text-anchor="middle">knows nothing about USB</text>
+
+  <rect class="s-box-a" x="460" y="55" width="180" height="90" rx="10"/>
+  <text class="s-t" x="550" y="90" text-anchor="middle" font-size="15">Windows</text>
+  <text class="s-t-sm" x="550" y="112" text-anchor="middle">deals with the hardware</text>
+
+  <path class="s-arr-g" d="M248 82 H452" marker-end="url(#d1)"/>
+  <text class="s-t-sm" x="350" y="74" text-anchor="middle">"what is controller 0 doing?"</text>
+
+  <path class="s-arr-a" d="M452 118 H248" marker-end="url(#d2)"/>
+  <text class="s-t-sm" x="350" y="138" text-anchor="middle">"A is down, left stick is at −31000"</text>
+
+  <text class="s-em" x="350" y="180" text-anchor="middle">This exchange happens every single frame. 60 times a second. Forever.</text>
+  <defs>
+    <marker id="d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+    <marker id="d2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+</svg>
+</div>
+</figure>
+
+<div class="analogy">
+  <span class="lb">Think of it this way</span>
+  <p>You're at a restaurant table. You want food, but you don't walk into the kitchen — you tell the waiter, and food arrives.</p>
+  <p>You have no idea who cooked it, what the stove looks like, or whether the kitchen even <em>has</em> a stove. You asked the waiter; you got food. That's the whole of your relationship with the kitchen.</p>
+  <p>The game is you. Windows is the waiter. The controller is the kitchen. And critically: <strong>if the waiter brings you food, you have absolutely no way to tell whether it came from a kitchen at all.</strong></p>
+</div>
+
+<div class="define">
+  <span class="term">API</span>
+  <p>An <strong>API</strong> (Application Programming Interface) is just a menu of functions one piece of software offers to another. "Here are the things you may ask me to do, and here's the format of the answer."</p>
+  <p>The waiter's menu is an API. So is the set of functions Windows offers for reading controllers.</p>
+</div>
+
+<div class="define">
+  <span class="term">XInput</span>
+  <p><strong>XInput</strong> is the specific Windows API for Xbox-style controllers. When a game wants controller data, it calls a function from XInput named <code>XInputGetState</code>, passing a controller number (0 to 3).</p>
+  <p>You'll see this name constantly from here on. It's the front door our whole project walks through.</p>
+</div>
+
+<h2>The full chain, all the way down</h2>
+
+<p>So the game asks XInput. But where does <em>XInput</em> get its answer? There are more layers below, and we need to see them, because that's where we'll eventually break in.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 400" role="img" aria-label="The four layers from physical controller up to the game">
+  <rect class="s-box-g" x="180" y="25" width="340" height="56" rx="9"/>
+  <text class="s-t" x="350" y="49" text-anchor="middle" font-size="15">The game</text>
+  <text class="s-t-mono" x="350" y="68" text-anchor="middle">XInputGetState(0, &amp;state)</text>
+
+  <path class="s-arr" d="M350 116 V85" marker-end="url(#e1)"/>
+  <text class="s-t-sm" x="365" y="105">answers</text>
+
+  <rect class="s-box-a" x="180" y="118" width="340" height="52" rx="9"/>
+  <text class="s-t" x="350" y="141" text-anchor="middle" font-size="15">XInput</text>
+  <text class="s-t-sm" x="350" y="159" text-anchor="middle">Windows' controller API</text>
+
+  <path class="s-arr" d="M350 205 V174" marker-end="url(#e1)"/>
+
+  <rect class="s-box-b" x="180" y="207" width="340" height="60" rx="9"/>
+  <text class="s-t" x="350" y="230" text-anchor="middle" font-size="15">The driver</text>
+  <text class="s-t-sm" x="350" y="248" text-anchor="middle">translates raw hardware signals into readable state</text>
+  <text class="s-lbl" x="192" y="262">kernel</text>
+
+  <path class="s-arr" d="M350 302 V271" marker-end="url(#e1)"/>
+
+  <rect class="s-box" x="180" y="304" width="340" height="46" rx="9"/>
+  <text class="s-t" x="350" y="332" text-anchor="middle">USB cable · wireless dongle</text>
+
+  <path class="s-arr" d="M350 385 V354" marker-end="url(#e1)"/>
+  <text class="s-t" x="350" y="382" text-anchor="middle" font-size="15">The actual plastic controller</text>
+
+  <text class="s-em" x="640" y="200" text-anchor="end" transform="rotate(-90 640 200)">information flows upward</text>
+  <defs><marker id="e1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker></defs>
+</svg>
+</div>
+<figcaption>Each layer only talks to its immediate neighbours. The game has never heard of the USB cable, and the cable has never heard of the game.</figcaption>
+</figure>
+
+<div class="define">
+  <span class="term">Driver</span>
+  <p>A <strong>driver</strong> is a small piece of software whose only job is to let the operating system talk to one particular kind of hardware. Your printer has one. Your graphics card has one. Your controller has one.</p>
+  <p>Drivers run in a specially privileged mode called <strong>kernel mode</strong>, which is Windows' inner circle — code there can touch hardware directly and is trusted absolutely. Ordinary programs run in <em>user mode</em> and cannot.</p>
+</div>
+
+<div class="define">
+  <span class="term">Kernel mode vs user mode</span>
+  <p>The <strong>kernel</strong> is the core of the operating system. Code running in kernel mode has unrestricted power over the machine. Everything you normally run — games, browsers, your server program — runs in <strong>user mode</strong>, walled off from the hardware, and must politely ask the kernel for anything real.</p>
+  <p>The wall between them is why you can't just write a program that pretends to be a USB device. That's a kernel-mode privilege. Remember this — it shapes Chapter 3 entirely.</p>
+</div>
+
+<h2>The gap in the game's knowledge</h2>
+
+<p>Now look carefully at that diagram and notice something the game <em>cannot</em> do.</p>
+
+<p>The game calls <code>XInputGetState(0, &amp;state)</code> and receives a snapshot. There is no second function it can call to ask "…and was that a genuine Microsoft controller?" No serial number check. No authenticity test. That function does not exist, because nobody ever needed it.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 200" role="img" aria-label="What the game can and cannot ask">
+  <rect class="s-box-g" x="35" y="30" width="300" height="140" rx="10"/>
+  <text class="s-lbl" x="55" y="56">the game can ask</text>
+  <text class="s-t" x="55" y="82">✓  What are the buttons doing?</text>
+  <text class="s-t" x="55" y="106">✓  Where are the sticks?</text>
+  <text class="s-t" x="55" y="130">✓  Is a controller connected at all?</text>
+  <text class="s-t" x="55" y="154">✓  Please make it vibrate.</text>
+
+  <rect class="s-box-r" x="365" y="30" width="300" height="140" rx="10"/>
+  <text class="s-lbl" x="385" y="56">the game cannot ask</text>
+  <text class="s-t" x="385" y="82">✗  Is this real hardware?</text>
+  <text class="s-t" x="385" y="106">✗  Who manufactured it?</text>
+  <text class="s-t" x="385" y="130">✗  Is anything actually plugged in?</text>
+  <text class="s-t" x="385" y="154">✗  Is a human touching it?</text>
+</svg>
+</div>
+<figcaption><b>The right-hand column is our entire opportunity.</b> Not a security hole — nobody considers it one — just a question the design of XInput never needed to answer.</figcaption>
+</figure>
+
+<div class="box good">
+  <span class="lb">The realisation</span>
+  <p>If we can get a convincing answer to appear at the <strong>driver</strong> layer, then XInput will pass it up, and the game will accept it — not because we tricked the game, but because the game is doing exactly what it always does and has no mechanism to do otherwise.</p>
+  <p>We don't need to touch the game. We don't need to modify Steam. We need to become a convincing answer, low enough down the stack.</p>
+</div>
+
+<h2>Why this makes the project realistic</h2>
+
+<p>Compare the two ways you might attack this:</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th></th><th>Fight the game</th><th>Slot in below it</th></tr></thead>
+<tbody>
+<tr><td>What you'd do</td><td>Modify each game, or inject code into it while it runs</td><td>Present a controller at the driver layer</td></tr>
+<tr><td>Games supported</td><td>The ones you specifically did work for</td><td>Every game that reads controllers. All of them.</td></tr>
+<tr><td>Breaks when…</td><td>Any game updates</td><td>Essentially never</td></tr>
+<tr><td>Anti-cheat reaction</td><td>Often flagged as tampering</td><td>Sees an ordinary controller</td></tr>
+<tr><td>Effort per game</td><td>Real work, every time</td><td>Zero</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>That second column is why every serious project in this space — commercial and open-source alike — chooses the same approach. In the next chapter we'll see exactly what it looks like.</p>
+
+<details>
+<summary>Wait, what about DirectInput? And what's HID?<span class="tag">optional detail</span></summary>
+<div class="dd">
+<p>You'll bump into two other names, so here they are:</p>
+<p><strong>DirectInput</strong> is the older Windows API, from before Xbox controllers existed. It's more general — it can describe joysticks with weird numbers of axes and thirty buttons — but it's clumsier, it doesn't handle Xbox triggers properly (it merges the two triggers into a single axis, so you can't press both at once), and modern games have largely moved on. We're targeting XInput.</p>
+<p><strong>HID</strong> (Human Interface Device) is the underlying USB standard for input hardware generally — keyboards, mice, joysticks, everything. It's the layer beneath both APIs. A device describes itself with a "report descriptor" saying "I have this many buttons and these axes," and the OS figures out the rest. You don't need to write one for this project, because we'll be emulating a specific known controller rather than inventing a new one.</p>
+<p>Practical upshot: <strong>target XInput, get everything.</strong> Games that only speak DirectInput are rare and old, and Steam can translate for them anyway.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Games never communicate with controllers. They call an <strong>API</strong> that the operating system provides.</li>
+    <li>On Windows, that API is <strong>XInput</strong>, and the specific call is <code>XInputGetState</code>.</li>
+    <li>Beneath XInput sits a <strong>driver</strong>, running in privileged <strong>kernel mode</strong>, which is what actually deals with hardware.</li>
+    <li>Ordinary programs run in <strong>user mode</strong> and are walled off from hardware — which is why we can't simply declare ourselves a USB device.</li>
+    <li>A game has <strong>no way to ask whether a controller is real</strong>. That question isn't in the API.</li>
+    <li>Therefore: produce a convincing answer at the driver layer, and every game accepts it, automatically and permanently.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch01.html"><span class="dir">← Previous</span><span class="ttl">1. What are we actually building?</span></a>
+  <a href="ch03.html" class="next"><span class="dir">Next →</span><span class="ttl">3. The trick: a controller made of software</span></a>
+</div>
+
+</div>
+</body>
+</html>

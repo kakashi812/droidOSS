@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone as Gamepad — a book</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">A build-along book · 12 chapters</div>
+  <h1>Turn a phone into a controller your PC can't tell from plastic</h1>
+  <p class="lede">Start knowing nothing about drivers, sockets, or input APIs. Finish having built a working gamepad server — and understanding every layer of why it works.</p>
+</header>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 190" role="img" aria-label="The finished system: phone sends input over Wi-Fi to a PC, which presents a virtual controller to a game">
+  <rect class="s-box-b" x="30" y="45" width="150" height="100" rx="10"/>
+  <rect x="65" y="70" width="80" height="52" rx="6" fill="var(--surface)" stroke="var(--blue)" stroke-width="1.5"/>
+  <circle cx="85" cy="96" r="11" fill="var(--blue-bg)" stroke="var(--blue)" stroke-width="1.5"/>
+  <circle cx="122" cy="88" r="5" fill="var(--blue)"/>
+  <circle cx="132" cy="100" r="5" fill="var(--blue)"/>
+  <text class="s-lbl" x="105" y="137" text-anchor="middle">your old phone</text>
+
+  <path class="s-arr-a" d="M188 95 H288" marker-end="url(#i1)"/>
+  <text class="s-em" x="238" y="87" text-anchor="middle">Wi-Fi</text>
+  <text class="s-t-sm" x="238" y="112" text-anchor="middle">20 bytes, 125×/sec</text>
+
+  <rect class="s-box-a" x="295" y="45" width="150" height="100" rx="10"/>
+  <text class="s-t" x="370" y="88" text-anchor="middle">Your server</text>
+  <text class="s-t-sm" x="370" y="108" text-anchor="middle">runs on Windows</text>
+  <text class="s-lbl" x="370" y="137" text-anchor="middle">the thing you build</text>
+
+  <path class="s-arr-g" d="M453 95 H553" marker-end="url(#i2)"/>
+  <text class="s-t-sm" x="503" y="87" text-anchor="middle">a controller</text>
+  <text class="s-t-sm" x="503" y="112" text-anchor="middle">appears</text>
+
+  <rect class="s-box-g" x="560" y="45" width="120" height="100" rx="10"/>
+  <text class="s-t" x="620" y="88" text-anchor="middle">Steam</text>
+  <text class="s-t" x="620" y="108" text-anchor="middle">any game</text>
+  <text class="s-lbl" x="620" y="137" text-anchor="middle">none the wiser</text>
+
+  <text class="s-t-sm" x="350" y="22" text-anchor="middle">The whole system, in one picture. Every chapter fills in one part of it.</text>
+  <defs>
+    <marker id="i1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+    <marker id="i2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+  </defs>
+</svg>
+</div>
+</figure>
+
+<div class="box info">
+  <span class="lb">How to use this book</span>
+  <p>Chapters are meant to be read <strong>in order</strong> and one at a time — each assumes only what came before it. Nothing is skipped or dumbed down; the harder material is simply placed later, once you have the vocabulary for it.</p>
+  <p>Every chapter ends with a <strong>recap</strong> listing what you now know. If a recap point feels shaky, reread that chapter before moving on — the next one will lean on it.</p>
+  <p>The <span style="color:var(--accent)">▸</span> rows are optional depth: extra code, edge cases, history. Skip them on a first pass and come back when you're building.</p>
+</div>
+
+<!-- PART I -->
+<div class="part">
+  <span class="pn">Part I</span>
+  <span class="pt">Understanding the problem</span>
+  <span class="pd">No code. Just the mental model.</span>
+</div>
+
+<ul class="chlist">
+<li><a href="ch01.html">
+  <span class="n">01</span>
+  <span class="body">
+    <span class="t">What are we actually building?</span>
+    <span class="d">The goal in plain language, what a "controller" really is to a computer, and why this is harder than it sounds.</span>
+  </span>
+  <span class="badge b-1">gentle</span>
+</a></li>
+<li><a href="ch02.html">
+  <span class="n">02</span>
+  <span class="body">
+    <span class="t">How a game hears a button press</span>
+    <span class="d">The single most important idea in the book. Games never talk to controllers — they ask the operating system.</span>
+  </span>
+  <span class="badge b-1">gentle</span>
+</a></li>
+<li><a href="ch03.html">
+  <span class="n">03</span>
+  <span class="body">
+    <span class="t">The trick: a controller made of software</span>
+    <span class="d">Where we cut into that chain, why Steam believes the lie, and why the obvious easier approach is a dead end.</span>
+  </span>
+  <span class="badge b-1">gentle</span>
+</a></li>
+</ul>
+
+<!-- PART II -->
+<div class="part">
+  <span class="pn">Part II</span>
+  <span class="pt">Your first working piece</span>
+  <span class="pd">Hands on the keyboard.</span>
+</div>
+
+<ul class="chlist">
+<li><a href="ch04.html">
+  <span class="n">04</span>
+  <span class="body">
+    <span class="t">Making a fake gamepad appear</span>
+    <span class="d">Install the driver, write ~40 lines, and watch a controller that doesn't exist move on screen. The project's biggest unknown, gone on day one.</span>
+  </span>
+  <span class="badge b-2">building</span>
+</a></li>
+</ul>
+
+<!-- PART III -->
+<div class="part">
+  <span class="pn">Part III</span>
+  <span class="pt">Crossing the gap</span>
+  <span class="pd">Getting data from phone to PC, fast.</span>
+</div>
+
+<ul class="chlist">
+<li><a href="ch05.html">
+  <span class="n">05</span>
+  <span class="body">
+    <span class="t">Two devices, one conversation</span>
+    <span class="d">Networking from zero: what an IP address and a port really are, and what a socket does. No prior knowledge assumed.</span>
+  </span>
+  <span class="badge b-1">gentle</span>
+</a></li>
+<li><a href="ch06.html">
+  <span class="n">06</span>
+  <span class="body">
+    <span class="t">Where the milliseconds go</span>
+    <span class="d">Why your choice of programming language is almost irrelevant to input lag — and what actually matters instead.</span>
+  </span>
+  <span class="badge b-2">building</span>
+</a></li>
+<li><a href="ch07.html">
+  <span class="n">07</span>
+  <span class="body">
+    <span class="t">Choosing how to speak: UDP vs TCP</span>
+    <span class="d">The one place where the "obviously safer" choice is actively harmful. Losing a packet costs nothing; waiting for one costs everything.</span>
+  </span>
+  <span class="badge b-2">building</span>
+</a></li>
+<li><a href="ch08.html">
+  <span class="n">08</span>
+  <span class="body">
+    <span class="t">Designing the message</span>
+    <span class="d">Twenty bytes, laid out field by field. Why fixed binary beats JSON here, and why your wire format should mirror your output format.</span>
+  </span>
+  <span class="badge b-3">deeper</span>
+</a></li>
+</ul>
+
+<!-- PART IV -->
+<div class="part">
+  <span class="pn">Part IV</span>
+  <span class="pt">The phone side</span>
+  <span class="pd">Turning glass into a joystick.</span>
+</div>
+
+<ul class="chlist">
+<li><a href="ch09.html">
+  <span class="n">09</span>
+  <span class="body">
+    <span class="t">Glass becomes a joystick</span>
+    <span class="d">Multi-touch tracking and the four classic ways to get it wrong. Stick geometry, deadzones, and why diagonals feel bad if you get it lazy.</span>
+  </span>
+  <span class="badge b-3">deeper</span>
+</a></li>
+<li><a href="ch10.html">
+  <span class="n">10</span>
+  <span class="body">
+    <span class="t">Finding each other</span>
+    <span class="d">Three tiers of discovery, from "type the IP" to broadcast to mDNS — plus an honest look at the security question.</span>
+  </span>
+  <span class="badge b-2">building</span>
+</a></li>
+</ul>
+
+<!-- PART V -->
+<div class="part">
+  <span class="pn">Part V</span>
+  <span class="pt">Making it real</span>
+  <span class="pd">The difference between a demo and a thing people use.</span>
+</div>
+
+<ul class="chlist">
+<li><a href="ch11.html">
+  <span class="n">11</span>
+  <span class="body">
+    <span class="t">Rumble, multiplayer, and not breaking</span>
+    <span class="d">Data flowing backwards. Four pads at once. And the robustness bug that will otherwise walk your character into a wall forever.</span>
+  </span>
+  <span class="badge b-4">advanced</span>
+</a></li>
+<li><a href="ch12.html">
+  <span class="n">12</span>
+  <span class="body">
+    <span class="t">Beyond the reference product</span>
+    <span class="d">What everyone else built and what they got wrong, the one trade-off that decides everything, and where you can genuinely beat DroidJoy.</span>
+  </span>
+  <span class="badge b-4">advanced</span>
+</a></li>
+</ul>
+
+<div class="part">
+  <span class="pn">Appendix</span>
+  <span class="pt">Reference</span>
+</div>
+
+<ul class="chlist">
+<li><a href="glossary.html">
+  <span class="n">§</span>
+  <span class="body">
+    <span class="t">Glossary</span>
+    <span class="d">Every piece of jargon in the book, defined in one line, with the chapter that introduces it.</span>
+  </span>
+</a></li>
+</ul>
+
+<footer>
+  <p><strong>About this book.</strong> It reconstructs the architecture of <a href="https://grill2010.github.io/droidJoy.html">DroidJoy</a>, a closed-source Windows + Android product, using its public documentation plus the open-source projects that solve the identical problem — <a href="https://github.com/nefarius/ViGEmBus">ViGEmBus</a>, <a href="https://github.com/Ishan09811/PadConnect">PadConnect</a>, <a href="https://github.com/OzymandiasTheGreat/Joy2DroidX-server">Joy2DroidX</a>, and <a href="https://kitswas.github.io/VirtualGamePad/">VirtualGamePad</a>. None of DroidJoy's internals are confirmed by its author.</p>
+  <p>Latency figures throughout are approximate ranges for typical consumer hardware, shown for proportion rather than as measurements.</p>
+</footer>
+
+</div>
+</body>
+</html>

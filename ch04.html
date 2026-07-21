@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 4 — Making a fake gamepad appear</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part II</a>
+    <span class="now">04 / 12</span>
+  </div>
+  <div class="progress"><div style="width:33.3%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Four <span class="badge b-2">building</span></div>
+  <h1>Making a fake gamepad appear</h1>
+  <p class="lede">Forty lines of code, and a controller that doesn't exist starts moving on your screen. No phone, no networking — just the hard part, done first.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 3:</b> ViGEmBus is the driver, ViGEmClient is the library, your code stays in user mode. <b>You'll need:</b> a Windows PC.</div>
+
+<h2>Why this comes first</h2>
+
+<p>Every instinct says to start with the phone — it's the visible part, the fun part. Resist it.</p>
+
+<p>The driver layer is the only piece of this project that could turn out to be <em>impossible</em> on your machine. Maybe the driver won't install. Maybe your Windows version fights it. Everything else — sockets, touch handling, UI — is ordinary programming that definitely works. So we attack the one genuine unknown on day one, while the project has cost you nothing.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 165" role="img" aria-label="Risk-first build ordering">
+  <text class="s-lbl" x="30" y="24">the tempting order</text>
+  <rect class="s-box" x="30" y="34" width="150" height="38" rx="6"/>
+  <text class="s-t-sm" x="105" y="58" text-anchor="middle">pretty phone UI</text>
+  <rect class="s-box" x="190" y="34" width="150" height="38" rx="6"/>
+  <text class="s-t-sm" x="265" y="58" text-anchor="middle">networking</text>
+  <rect class="s-box-r" x="350" y="34" width="180" height="38" rx="6"/>
+  <text class="s-t-sm" x="440" y="58" text-anchor="middle">driver — "oh no"</text>
+  <text class="s-t-sm" x="545" y="58" fill="var(--red)">← weeks wasted</text>
+
+  <text class="s-lbl" x="30" y="104">this chapter's order</text>
+  <rect class="s-box-g" x="30" y="114" width="180" height="38" rx="6"/>
+  <text class="s-t-sm" x="120" y="138" text-anchor="middle">driver — proven</text>
+  <rect class="s-box" x="220" y="114" width="150" height="38" rx="6"/>
+  <text class="s-t-sm" x="295" y="138" text-anchor="middle">networking</text>
+  <rect class="s-box" x="380" y="114" width="150" height="38" rx="6"/>
+  <text class="s-t-sm" x="455" y="138" text-anchor="middle">phone UI</text>
+  <text class="s-t-sm" x="545" y="138" fill="var(--green)">← nothing can surprise you</text>
+</svg>
+</div>
+<figcaption>A general rule worth keeping past this project: <b>do the part that might not work first.</b></figcaption>
+</figure>
+
+<h2>What a controller's state looks like in code</h2>
+
+<p>Chapter 1 said a controller reports a complete snapshot. Windows defines that snapshot as three groups of numbers:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 130" role="img" aria-label="The three parts of a controller snapshot">
+  <text class="s-lbl" x="30" y="24">everything an Xbox 360 pad can express</text>
+
+  <rect class="s-box-a" x="30" y="36" width="185" height="62" rx="6"/>
+  <text class="s-t" x="122" y="60" text-anchor="middle">Which buttons</text>
+  <text class="s-t" x="122" y="78" text-anchor="middle">are held down</text>
+
+  <rect class="s-box-g" x="223" y="36" width="185" height="62" rx="6"/>
+  <text class="s-t" x="315" y="60" text-anchor="middle">How hard each</text>
+  <text class="s-t" x="315" y="78" text-anchor="middle">trigger is squeezed</text>
+
+  <rect class="s-box-b" x="416" y="36" width="254" height="62" rx="6"/>
+  <text class="s-t" x="543" y="60" text-anchor="middle">Where the two sticks are</text>
+  <text class="s-t" x="543" y="78" text-anchor="middle">pushed (X and Y each)</text>
+
+  <text class="s-t-sm" x="122" y="118" text-anchor="middle">the tricky one ↑</text>
+  <text class="s-t-sm" x="315" y="118" text-anchor="middle">a number 0–255</text>
+  <text class="s-t-sm" x="543" y="118" text-anchor="middle">numbers −32768 to +32767</text>
+</svg>
+</div>
+</figure>
+
+<p>The last two groups are easy — they're just numbers. Trigger squeezed halfway? That's <code>128</code>. Stick pushed fully left? That's <code>-32768</code>. Nothing surprising.</p>
+
+<p>The <strong>buttons</strong> group is the one worth slowing down for, because Windows stores all sixteen of them inside a <em>single</em> number. Let's build up to how.</p>
+
+<h3>Step 1: think of a row of light switches</h3>
+
+<p>Imagine sixteen light switches in a row, one per button. Each is either up or down. To describe the whole controller's buttons, you just write down which switches are flipped.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 150" role="img" aria-label="Sixteen labelled switches, with A and B flipped on">
+  <text class="s-lbl" x="30" y="24">the player is holding Ⓐ and Ⓑ</text>
+
+  <g>
+    <rect class="s-box" x="30"  y="40" width="40" height="46" rx="4"/>
+    <rect class="s-box" x="70"  y="40" width="40" height="46"/>
+    <rect class="s-box-a" x="110" y="40" width="40" height="46"/>
+    <rect class="s-box-a" x="150" y="40" width="40" height="46"/>
+    <rect class="s-box" x="190" y="40" width="40" height="46"/>
+    <rect class="s-box" x="230" y="40" width="40" height="46"/>
+    <rect class="s-box" x="270" y="40" width="40" height="46"/>
+    <rect class="s-box" x="310" y="40" width="40" height="46"/>
+    <rect class="s-box" x="350" y="40" width="40" height="46"/>
+    <rect class="s-box" x="390" y="40" width="40" height="46"/>
+    <rect class="s-box" x="430" y="40" width="40" height="46"/>
+    <rect class="s-box" x="470" y="40" width="40" height="46"/>
+    <rect class="s-box" x="510" y="40" width="40" height="46"/>
+    <rect class="s-box" x="550" y="40" width="40" height="46"/>
+    <rect class="s-box" x="590" y="40" width="40" height="46"/>
+    <rect class="s-box" x="630" y="40" width="40" height="46" rx="4"/>
+  </g>
+
+  <g class="s-t-mono" text-anchor="middle" font-size="10">
+    <text x="50" y="60">Y</text>   <text x="90" y="60">X</text>
+    <text x="130" y="60">B</text>  <text x="170" y="60">A</text>
+    <text x="210" y="60">—</text>  <text x="250" y="60">Gde</text>
+    <text x="290" y="60">RB</text> <text x="330" y="60">LB</text>
+    <text x="370" y="60">R3</text> <text x="410" y="60">L3</text>
+    <text x="450" y="60">Bck</text><text x="490" y="60">Strt</text>
+    <text x="530" y="60">→</text>  <text x="570" y="60">←</text>
+    <text x="610" y="60">↓</text>  <text x="650" y="60">↑</text>
+  </g>
+
+  <g class="s-t" text-anchor="middle" font-size="14">
+    <text x="50" y="80">off</text>  <text x="90" y="80">off</text>
+    <text x="130" y="80" fill="var(--accent)" font-weight="700">ON</text>
+    <text x="170" y="80" fill="var(--accent)" font-weight="700">ON</text>
+    <text x="210" y="80">off</text> <text x="250" y="80">off</text>
+    <text x="290" y="80">off</text> <text x="330" y="80">off</text>
+    <text x="370" y="80">off</text> <text x="410" y="80">off</text>
+    <text x="450" y="80">off</text> <text x="490" y="80">off</text>
+    <text x="530" y="80">off</text> <text x="570" y="80">off</text>
+    <text x="610" y="80">off</text> <text x="650" y="80">off</text>
+  </g>
+
+  <text class="s-t-sm" x="350" y="118" text-anchor="middle">That's the entire button state of the controller. Sixteen yes/no answers.</text>
+  <text class="s-t-sm" x="350" y="138" text-anchor="middle">Now we just need a compact way to write it down.</text>
+</svg>
+</div>
+</figure>
+
+<h3>Step 2: write "on" as 1 and "off" as 0</h3>
+
+<p>Replace each switch with a digit. Now the whole thing is a string of sixteen 1s and 0s — and <strong>that string is just a number, written in binary.</strong></p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 175" role="img" aria-label="The same switches written as binary digits, grouped into four hex digits">
+  <g>
+    <rect class="s-box" x="30"  y="30" width="40" height="40" rx="4"/>
+    <rect class="s-box" x="70"  y="30" width="40" height="40"/>
+    <rect class="s-box-a" x="110" y="30" width="40" height="40"/>
+    <rect class="s-box-a" x="150" y="30" width="40" height="40"/>
+    <rect class="s-box" x="190" y="30" width="40" height="40"/>
+    <rect class="s-box" x="230" y="30" width="40" height="40"/>
+    <rect class="s-box" x="270" y="30" width="40" height="40"/>
+    <rect class="s-box" x="310" y="30" width="40" height="40"/>
+    <rect class="s-box" x="350" y="30" width="40" height="40"/>
+    <rect class="s-box" x="390" y="30" width="40" height="40"/>
+    <rect class="s-box" x="430" y="30" width="40" height="40"/>
+    <rect class="s-box" x="470" y="30" width="40" height="40"/>
+    <rect class="s-box" x="510" y="30" width="40" height="40"/>
+    <rect class="s-box" x="550" y="30" width="40" height="40"/>
+    <rect class="s-box" x="590" y="30" width="40" height="40"/>
+    <rect class="s-box" x="630" y="30" width="40" height="40" rx="4"/>
+  </g>
+  <g class="s-t-mono" text-anchor="middle" font-size="15">
+    <text x="50" y="57">0</text>
+    <text x="90" y="57">0</text>
+    <text x="130" y="57" fill="var(--accent)" font-weight="700">1</text>
+    <text x="170" y="57" fill="var(--accent)" font-weight="700">1</text>
+    <text x="210" y="57">0</text><text x="250" y="57">0</text>
+    <text x="290" y="57">0</text><text x="330" y="57">0</text>
+    <text x="370" y="57">0</text><text x="410" y="57">0</text>
+    <text x="450" y="57">0</text><text x="490" y="57">0</text>
+    <text x="530" y="57">0</text><text x="570" y="57">0</text>
+    <text x="610" y="57">0</text><text x="650" y="57">0</text>
+  </g>
+
+  <path class="s-zone" d="M30 80 H190 M30 80 V90 M190 80 V90"/>
+  <path class="s-zone" d="M190 80 H350 M190 80 V90 M350 80 V90"/>
+  <path class="s-zone" d="M350 80 H510 M350 80 V90 M510 80 V90"/>
+  <path class="s-zone" d="M510 80 H670 M510 80 V90 M670 80 V90"/>
+
+  <text class="s-t-sm" x="110" y="106" text-anchor="middle">0011</text>
+  <text class="s-t-sm" x="270" y="106" text-anchor="middle">0000</text>
+  <text class="s-t-sm" x="430" y="106" text-anchor="middle">0000</text>
+  <text class="s-t-sm" x="590" y="106" text-anchor="middle">0000</text>
+
+  <text class="s-em" x="110" y="130" text-anchor="middle" font-size="17">3</text>
+  <text class="s-em" x="270" y="130" text-anchor="middle" font-size="17">0</text>
+  <text class="s-em" x="430" y="130" text-anchor="middle" font-size="17">0</text>
+  <text class="s-em" x="590" y="130" text-anchor="middle" font-size="17">0</text>
+
+  <text class="s-t-sm" x="350" y="160" text-anchor="middle">Group the digits in fours, and each group becomes one shorter symbol. Written out: <tspan font-family="monospace" fill="var(--accent)">0x3000</tspan></text>
+</svg>
+</div>
+</figure>
+
+<div class="define">
+  <span class="term">Hexadecimal (hex)</span>
+  <p>Sixteen binary digits in a row is exhausting to read and easy to miscount. So programmers group them in fours and write each group as a single symbol — <code>0000</code>→0, <code>0011</code>→3, <code>1111</code>→F. That's <strong>hex</strong>.</p>
+  <p>The <code>0x</code> prefix just means "the following is hex, not an ordinary decimal number." So <code>0x3000</code> is nothing exotic — it's the same sixteen switches, written in four characters instead of sixteen.</p>
+</div>
+
+<h3>Step 3: each button has its own value</h3>
+
+<p>If only one switch is on, the whole row still forms a number — that button's own value. Which is why every button has a fixed number attached to it:</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Button</th><th>Only that switch on, in binary</th><th>In hex</th><th>As a plain number</th></tr></thead>
+<tbody>
+<tr><td>Ⓐ</td><td><code>0001 0000 0000 0000</code></td><td><code>0x1000</code></td><td>4096</td></tr>
+<tr><td>Ⓑ</td><td><code>0010 0000 0000 0000</code></td><td><code>0x2000</code></td><td>8192</td></tr>
+<tr><td>Ⓧ</td><td><code>0100 0000 0000 0000</code></td><td><code>0x4000</code></td><td>16384</td></tr>
+<tr><td>Ⓨ</td><td><code>1000 0000 0000 0000</code></td><td><code>0x8000</code></td><td>32768</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>And holding Ⓐ <em>and</em> Ⓑ together means flipping both switches on — which is the same as adding their values:</p>
+
+<pre><code>Ⓐ alone   0x1000     (4096)
+Ⓑ alone   0x2000     (8192)
+Ⓐ and Ⓑ   0x3000    (12288)   ← both switches on</code></pre>
+
+<p>In code you'd write that with <code>|</code> rather than <code>+</code>. It's called <strong>bitwise OR</strong>, and it means "flip on every switch that's on in either one." For separate buttons the result is identical to adding — <code>|</code> is just the operator that says what you actually mean.</p>
+
+<div class="define">
+  <span class="term">Bitmask</span>
+  <p>The general name for this trick: <strong>packing many yes/no answers into one number, one binary digit each.</strong> You'll meet it everywhere in low-level code — file permissions, network flags, graphics options — so it's worth the ten minutes.</p>
+  <p>Two operators go with it: <code>|</code> to switch things <em>on</em>, and <code>&amp;</code> to <em>ask</em> whether something is on (<code>if (buttons &amp; 0x1000)</code> reads as "is Ⓐ held?").</p>
+</div>
+
+<div class="box good">
+  <span class="lb">You do not have to do any of this by hand</span>
+  <p>That was worth understanding because you'll see raw hex values in documentation and in other people's code, and Chapter 8 sends this exact number across the network.</p>
+  <p>But the C# library gives you named buttons and handles the bit-fiddling itself:</p>
+  <pre style="margin:10px 0 0"><code>pad.SetButtonState(Xbox360Button.A, true);
+pad.SetButtonState(Xbox360Button.B, true);</code></pre>
+  <p style="margin-top:10px">No hex, no <code>|</code>, no counting bits. If Step 3 didn't fully land, it genuinely won't block you — come back to it when you meet <code>0x1000</code> in the wild.</p>
+</div>
+
+<details>
+<summary>The full list of all sixteen buttons<span class="tag">reference</span></summary>
+<div class="dd">
+<div class="scroll">
+<table>
+<thead><tr><th>Bit</th><th>Value</th><th>Button</th><th>Bit</th><th>Value</th><th>Button</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><code>0x0001</code></td><td>D-pad Up</td><td>8</td><td><code>0x0100</code></td><td>Left shoulder</td></tr>
+<tr><td>1</td><td><code>0x0002</code></td><td>D-pad Down</td><td>9</td><td><code>0x0200</code></td><td>Right shoulder</td></tr>
+<tr><td>2</td><td><code>0x0004</code></td><td>D-pad Left</td><td>10</td><td><code>0x0400</code></td><td>Guide (unofficial)</td></tr>
+<tr><td>3</td><td><code>0x0008</code></td><td>D-pad Right</td><td>11</td><td><code>0x0800</code></td><td>— unused</td></tr>
+<tr><td>4</td><td><code>0x0010</code></td><td>Start</td><td>12</td><td><code>0x1000</code></td><td>A</td></tr>
+<tr><td>5</td><td><code>0x0020</code></td><td>Back</td><td>13</td><td><code>0x2000</code></td><td>B</td></tr>
+<tr><td>6</td><td><code>0x0040</code></td><td>Left stick click</td><td>14</td><td><code>0x4000</code></td><td>X</td></tr>
+<tr><td>7</td><td><code>0x0080</code></td><td>Right stick click</td><td>15</td><td><code>0x8000</code></td><td>Y</td></tr>
+</tbody>
+</table>
+</div>
+<p style="margin-top:12px">Ten buttons, a 4-way d-pad, and two clickable sticks. DroidJoy's advertised "14 buttons" maps onto exactly this. Note that "bit 0" is the <em>rightmost</em> digit when you write the number out — which is why the switch diagrams above have the d-pad on the right and Ⓨ on the left.</p>
+</div>
+</details>
+
+<h2>Picking a language — and why it matters less than you think</h2>
+
+<p>We'll use <strong>C#</strong>. Here's the honest reasoning, because you should be suspicious of a recommendation with no argument behind it.</p>
+
+<p>You might expect that a project about input lag demands the fastest possible language. Chapter 6 covers this properly, but the short version: the code you write in this layer runs in <em>microseconds</em>, inside a system where the network and the game's own frame timing cost <em>tens of milliseconds</em>. Your language choice is thousands of times too small to matter.</p>
+
+<p>So choose for the thing that does matter — how quickly you can get something working:</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Option</th><th>The case for</th><th>The case against</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>C#</strong> ✅</td>
+  <td><code>Nefarius.ViGEm.Client</code> is maintained by the driver's own author, so the tricky bridge into kernel-land is already solved. Sockets, tray icons, and settings are all one-liners.</td>
+  <td>Nothing that matters here.</td>
+</tr>
+<tr>
+  <td><strong>C</strong></td>
+  <td>ViGEmClient <em>is</em> a C library, so this is the most direct possible route. And you already know C.</td>
+  <td>The driver call isn't the problem — everything around it is. A Windows GUI, tray icon, and config storage in raw C is a lot of Win32 plumbing unrelated to what you're learning.</td>
+</tr>
+<tr>
+  <td><strong>Rust</strong></td>
+  <td>Would teach you the most.</td>
+  <td>Learning Rust's ownership model <em>and</em> this architecture at once is two hard things simultaneously.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="box">
+  <span class="lb">Not a permanent decision</span>
+  <p>Once the whole thing works and you know exactly what the server does, porting it to C is a weekend. That's a much better time to do it — you'll be translating a known design rather than discovering one. Starting in C means spending most of your time on scaffolding instead of on the ideas.</p>
+</div>
+
+<h2>Building it</h2>
+
+<div class="milestone">
+  <span class="lb">Milestone 1 · your first virtual controller</span>
+  <h4>Goal: a controller that isn't there, visibly moving.</h4>
+  <ol>
+    <li><strong>Install the driver.</strong> Get the ViGEmBus installer from its <a href="https://github.com/nefarius/ViGEmBus/releases">releases page</a> and run it. It'll ask for admin rights — that's the driver install we discussed. Reboot if prompted.</li>
+    <li><strong>New console project.</strong> <code>dotnet new console -o PadServer</code></li>
+    <li><strong>Add the library.</strong> <code>dotnet add package Nefarius.ViGEm.Client</code></li>
+    <li><strong>Write the code below</strong>, then <code>dotnet run</code>.</li>
+    <li><strong>Watch it.</strong> Press <kbd>Win</kbd>+<kbd>R</kbd>, type <code>joy.cpl</code>, hit enter. Your phantom controller is listed. Open its properties and the stick is moving in circles.</li>
+  </ol>
+</div>
+
+<pre><code>using Nefarius.ViGEm.Client;
+using Nefarius.ViGEm.Client.Targets;
+using Nefarius.ViGEm.Client.Targets.Xbox360;
+
+// Connect to the ViGEmBus driver.
+using var client = new ViGEmClient();
+
+// Create a virtual Xbox 360 pad and "plug it in".
+var pad = client.CreateXbox360Controller();
+pad.Connect();          // ← Windows enumerates a controller RIGHT HERE
+
+Console.WriteLine("Virtual pad connected. Open joy.cpl to watch. Ctrl+C to quit.");
+
+double angle = 0;
+while (true)
+{
+    // Sweep the left stick around a circle.
+    short x = (short)(Math.Cos(angle) * 32000);
+    short y = (short)(Math.Sin(angle) * 32000);
+
+    pad.SetAxisValue(Xbox360Axis.LeftThumbX, x);
+    pad.SetAxisValue(Xbox360Axis.LeftThumbY, y);
+
+    // Tap the A button once per full rotation.
+    pad.SetButtonState(Xbox360Button.A, Math.Sin(angle) > 0.95);
+
+    pad.SubmitReport();   // ← push the snapshot to the driver
+
+    angle += 0.05;
+    Thread.Sleep(16);     // roughly 60 times a second
+}</code></pre>
+
+<p>That's the entire hard part of the project. Everything remaining is getting good numbers into those <code>SetAxisValue</code> calls from a phone instead of from <code>Math.Cos</code>.</p>
+
+<div class="box good">
+  <span class="lb">Try this before moving on</span>
+  <p>Leave it running and open <strong>Steam → Settings → Controller</strong>. Steam lists an Xbox 360 controller. Launch any game with controller support and watch your character walk in circles.</p>
+  <p>Nothing in Steam or that game knows anything about your program. That's the whole idea from Chapter 3, working.</p>
+</div>
+
+<h2>The one design decision to make now</h2>
+
+<p>Chapter 3 flagged that ViGEmBus is unmaintained. The fix costs about five minutes today and saves a rewrite later: never let the rest of your program call ViGEm directly. Put a small interface in between.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 215" role="img" aria-label="An interface isolating the ViGEm dependency">
+  <rect class="s-box-b" x="215" y="25" width="270" height="44" rx="8"/>
+  <text class="s-t" x="350" y="52" text-anchor="middle">The rest of your server</text>
+
+  <path class="s-arr" d="M350 100 V71" marker-end="url(#j1)"/>
+
+  <rect class="s-box-a" x="180" y="102" width="340" height="52" rx="8"/>
+  <text class="s-t" x="350" y="124" text-anchor="middle">IVirtualPad</text>
+  <text class="s-t-mono" x="350" y="143" text-anchor="middle">Plug · Unplug · Submit · OnFeedback</text>
+
+  <path class="s-arr-a" d="M270 185 V156" marker-end="url(#j2)"/>
+  <path class="s-arr-a" d="M430 185 V156" marker-end="url(#j2)"/>
+
+  <rect class="s-box-g" x="165" y="187" width="200" height="26" rx="5"/>
+  <text class="s-t-sm" x="265" y="205" text-anchor="middle">ViGEmPad (today)</text>
+  <rect class="s-box" x="380" y="187" width="200" height="26" rx="5"/>
+  <text class="s-t-sm" x="480" y="205" text-anchor="middle">UinputPad · VirtualPad (later)</text>
+
+  <defs>
+    <marker id="j1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker>
+    <marker id="j2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption>Four methods. If ViGEmBus ever breaks on a future Windows build — or you decide to support Linux — you write one new class and change one line. Without this, that dependency spreads through your whole codebase and becomes a rewrite.</figcaption>
+</figure>
+
+<pre><code>public interface IVirtualPad : IDisposable
+{
+    void Plug();
+    void Unplug();
+    void Submit(PadState state);
+    event Action&lt;byte, byte&gt; OnFeedback;   // rumble — Chapter 11
+}</code></pre>
+
+<details>
+<summary>The same thing in C, if you'd rather<span class="tag">alternative</span></summary>
+<div class="dd">
+<p>ViGEmClient is a C library, so this is a direct translation — six functions in total:</p>
+<pre><code>PVIGEM_CLIENT client = vigem_alloc();
+vigem_connect(client);
+
+PVIGEM_TARGET pad = vigem_target_x360_alloc();
+vigem_target_add(client, pad);        // enumerated now
+
+XUSB_REPORT report = { 0 };
+report.wButtons = XUSB_GAMEPAD_A;
+report.sThumbLX = 16384;
+vigem_target_x360_update(client, pad, report);
+
+vigem_target_remove(client, pad);
+vigem_target_free(pad);
+vigem_disconnect(client);
+vigem_free(client);</code></pre>
+<p><code>vigem_target_add</code> is the moment the controller appears; <code>vigem_target_remove</code> unplugs it. Four players means four <code>PVIGEM_TARGET</code> handles — that's Chapter 11.</p>
+</div>
+</details>
+
+<details>
+<summary>If something didn't work<span class="tag">troubleshooting</span></summary>
+<div class="dd">
+<ul>
+  <li><strong>Exception on <code>new ViGEmClient()</code></strong> — the driver isn't installed or the machine hasn't rebooted since. This is by far the most common failure.</li>
+  <li><strong>Installer refuses</strong> — you need administrator rights. On a managed work laptop, driver installation may be blocked by policy entirely; you'd need a personal machine.</li>
+  <li><strong>Nothing in <code>joy.cpl</code></strong> — check the program is still running. The controller is unplugged the instant your process exits, by design.</li>
+  <li><strong>Stick moves but games ignore it</strong> — likely Steam Input applying its own layer on top. Turn it off for that specific game while testing; it's a classic evening-waster.</li>
+</ul>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Attack the riskiest layer first — it's the only one that might be impossible.</li>
+    <li>A controller's whole state is <strong>12 bytes</strong>: a 16-bit button <strong>bitmask</strong>, two trigger bytes, four stick values.</li>
+    <li>Your language barely affects latency, so pick for development speed. <strong>C#</strong> plus <code>Nefarius.ViGEm.Client</code>.</li>
+    <li><code>pad.Connect()</code> is the moment Windows enumerates a controller; <code>SubmitReport()</code> pushes each new snapshot.</li>
+    <li>You have a working virtual gamepad. The rest of the book replaces <code>Math.Cos</code> with a phone.</li>
+    <li>Hide ViGEm behind a four-method <strong>interface</strong> now, so the unmaintained driver stays swappable.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch03.html"><span class="dir">← Previous</span><span class="ttl">3. The trick: a controller made of software</span></a>
+  <a href="ch05.html" class="next"><span class="dir">Next →</span><span class="ttl">5. Two devices, one conversation</span></a>
+</div>
+
+</div>
+</body>
+</html>

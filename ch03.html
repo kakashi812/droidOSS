@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 3 — The trick: a controller made of software</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part I</a>
+    <span class="now">03 / 12</span>
+  </div>
+  <div class="progress"><div style="width:25%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Three <span class="badge b-1">gentle</span></div>
+  <h1>The trick: a controller made of software</h1>
+  <p class="lede">Chapter 2 found the opening. This chapter walks through it — and explains why Steam believes what it's told.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 2:</b> games ask XInput; XInput asks a kernel-mode driver; nobody can ask "is this real?"</div>
+
+<h2>A driver with nothing behind it</h2>
+
+<p>Here's the idea in one line: <strong>write a driver that reports a controller, without there being a controller.</strong></p>
+
+<p>Everything above it in the stack behaves exactly as it always has. XInput asks the driver for state and gets state. The game asks XInput and gets an answer. Nobody involved is doing anything unusual. The only oddity is that at the very bottom, where you'd expect a USB cable and some plastic, there's a program taking instructions over Wi-Fi.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 450" role="img" aria-label="Real and virtual controller paths converging at XInput">
+  <rect class="s-box-g" x="160" y="20" width="380" height="52" rx="9"/>
+  <text class="s-t" x="350" y="42" text-anchor="middle" font-size="15">Game · Steam</text>
+  <text class="s-t-mono" x="350" y="61" text-anchor="middle">XInputGetState(0, &amp;state)</text>
+
+  <path class="s-arr-g" d="M350 106 V76" marker-end="url(#f0)"/>
+
+  <rect class="s-box-g" x="160" y="108" width="380" height="46" rx="9"/>
+  <text class="s-t" x="350" y="136" text-anchor="middle">XInput · Windows</text>
+
+  <text class="s-em" x="350" y="180" text-anchor="middle">▲  identical from here up — the game cannot tell these apart  ▲</text>
+
+  <rect class="s-zone" x="25" y="192" width="650" height="66" rx="9"/>
+  <text class="s-lbl" x="38" y="210">kernel mode</text>
+
+  <!-- left -->
+  <rect class="s-box" x="70" y="212" width="220" height="40" rx="6"/>
+  <text class="s-t" x="180" y="237" text-anchor="middle">Real XUSB driver</text>
+  <path class="s-arr" d="M180 208 V158" marker-end="url(#f1)"/>
+
+  <rect class="s-box" x="70" y="298" width="220" height="38" rx="6"/>
+  <text class="s-t" x="180" y="322" text-anchor="middle">USB cable</text>
+  <path class="s-arr" d="M180 296 V258" marker-end="url(#f1)"/>
+
+  <rect class="s-box" x="70" y="378" width="220" height="48" rx="6"/>
+  <text class="s-t" x="180" y="400" text-anchor="middle">Xbox controller</text>
+  <text class="s-t-sm" x="180" y="417" text-anchor="middle">actual plastic</text>
+  <path class="s-arr" d="M180 376 V336" marker-end="url(#f1)"/>
+
+  <!-- right -->
+  <rect class="s-box-a" x="410" y="212" width="220" height="40" rx="6"/>
+  <text class="s-t" x="520" y="237" text-anchor="middle">Virtual bus driver</text>
+  <path class="s-arr-a" d="M520 208 V158" marker-end="url(#f2)"/>
+
+  <rect class="s-box-a" x="410" y="284" width="220" height="40" rx="6"/>
+  <text class="s-t" x="520" y="309" text-anchor="middle">Your server program</text>
+  <path class="s-arr-a" d="M520 282 V258" marker-end="url(#f2)"/>
+
+  <rect class="s-box-b" x="410" y="346" width="220" height="36" rx="6"/>
+  <text class="s-t" x="520" y="369" text-anchor="middle">Wi-Fi</text>
+  <path class="s-arr-a" d="M520 344 V324" marker-end="url(#f2)"/>
+
+  <rect class="s-box-b" x="410" y="398" width="220" height="40" rx="6"/>
+  <text class="s-t" x="520" y="423" text-anchor="middle">Phone screen</text>
+  <path class="s-arr-a" d="M520 396 V382" marker-end="url(#f2)"/>
+
+  <defs>
+    <marker id="f0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+    <marker id="f1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker>
+    <marker id="f2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption><b>Two paths, one destination.</b> Everything above the dashed kernel band is unmodified Windows doing its normal job. The entire project lives in the orange column.</figcaption>
+</figure>
+
+<div class="define">
+  <span class="term">Virtual bus driver</span>
+  <p>A <strong>bus</strong> is the connection system devices plug into — USB is a bus. A <strong>virtual</strong> bus driver creates a bus that exists only in software, and then reports devices attached to it.</p>
+  <p>Windows enumerates those devices exactly like physical ones: they appear in Device Manager, they get device IDs, they can be "unplugged." From the operating system's point of view they aren't fake at all — the kernel's definition of "a device exists" is simply "a driver said so."</p>
+</div>
+
+<h2>Why Steam believes it</h2>
+
+<p>This is worth being precise about, because people assume something cleverer is going on.</p>
+
+<p>Steam is not being fooled by some hack aimed at Steam. There's no Steam integration to write, no Steam API to call, nothing about Steam in your code at all. Steam asks Windows what controllers are attached, Windows says "an Xbox 360 controller," and Steam reports that faithfully.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 190" role="img" aria-label="Steam is telling the truth about what Windows told it">
+  <rect class="s-box-b" x="30" y="55" width="150" height="70" rx="9"/>
+  <text class="s-t" x="105" y="86" text-anchor="middle">Your server</text>
+  <text class="s-t-sm" x="105" y="106" text-anchor="middle">tells the driver</text>
+
+  <path class="s-arr-a" d="M188 90 H248" marker-end="url(#g1)"/>
+
+  <rect class="s-box-a" x="255" y="55" width="150" height="70" rx="9"/>
+  <text class="s-t" x="330" y="86" text-anchor="middle">The driver</text>
+  <text class="s-t-sm" x="330" y="106" text-anchor="middle">tells Windows</text>
+
+  <path class="s-arr-a" d="M413 90 H473" marker-end="url(#g1)"/>
+
+  <rect class="s-box-g" x="480" y="55" width="185" height="70" rx="9"/>
+  <text class="s-t" x="572" y="86" text-anchor="middle">Windows → Steam</text>
+  <text class="s-t-sm" x="572" y="106" text-anchor="middle">reports it accurately</text>
+
+  <text class="s-em" x="350" y="35" text-anchor="middle">The only untrue statement is made once, at the very left.</text>
+  <text class="s-t-sm" x="350" y="160" text-anchor="middle">Every layer after that is behaving correctly and honestly. Steam is <tspan font-style="italic">right</tspan> — there is a controller, as far as the OS is concerned.</text>
+  <defs><marker id="g1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+</figure>
+
+<div class="box good">
+  <span class="lb">Why this matters practically</span>
+  <p>Because the deception happens <em>below</em> everything, you get all of this without writing a line of code for any of it: correct Ⓐ/Ⓑ/Ⓧ/Ⓨ button prompts in games, Steam Big Picture navigation, Steam Input remapping, controller-based launchers, analog movement, and per-game controller configs.</p>
+  <p>You didn't add support for those features. They were always going to work the moment a controller existed.</p>
+</div>
+
+<h2>The one you don't have to write</h2>
+
+<p>At this point the obvious worry: <em>"I have to write a Windows kernel driver?"</em></p>
+
+<p>No. Someone already did, and released it free. It's called <strong>ViGEmBus</strong>.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 230" role="img" aria-label="ViGEmBus and ViGEmClient split across the kernel boundary">
+  <rect class="s-zone" x="30" y="30" width="640" height="82" rx="9"/>
+  <text class="s-lbl" x="44" y="50">kernel mode — written by someone else, already done</text>
+  <rect class="s-box-a" x="200" y="56" width="300" height="42" rx="7"/>
+  <text class="s-t" x="350" y="82" text-anchor="middle">ViGEmBus — the virtual bus driver</text>
+
+  <path class="s-arr-a" d="M350 148 V104" marker-end="url(#h1)"/>
+  <text class="s-t-sm" x="365" y="132">a small library bridges the wall</text>
+
+  <rect class="s-zone" x="30" y="150" width="640" height="60" rx="9"/>
+  <text class="s-lbl" x="44" y="170">user mode — your territory</text>
+  <rect class="s-box-b" x="200" y="160" width="300" height="40" rx="7"/>
+  <text class="s-t" x="350" y="185" text-anchor="middle">ViGEmClient → your server program</text>
+
+  <defs><marker id="h1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+<figcaption><b>Two pieces with confusingly similar names.</b> <b>ViGEmBus</b> is the driver — you install it once, like any driver, and never think about it again. <b>ViGEmClient</b> is a small library you call from your own ordinary program. Your code stays entirely in user mode.</figcaption>
+</figure>
+
+<p>ViGEmBus can emulate an Xbox 360 controller or a PlayStation DualShock 4. We want the Xbox 360, because that's what XInput speaks and what games assume by default.</p>
+
+<div class="box warn">
+  <span class="lb">One thing to know now, not later</span>
+  <p>ViGEmBus was <strong>retired in November 2023</strong>. Its repository is archived and read-only, after a trademark dispute with an unrelated company of a similar name.</p>
+  <p><strong>It still works.</strong> The final signed release installs and runs fine on current Windows 10 and 11, and widely used tools still depend on it. It isn't broken — it's just unmaintained, with nobody obliged to fix it if a future Windows update breaks something.</p>
+  <p>We'll handle this properly in Chapter 4 by wrapping it behind a small interface, so it can be swapped later without disturbing anything else. Mentioning it here so it isn't a surprise.</p>
+</div>
+
+<h2>The road not taken</h2>
+
+<p>Before moving on, let's kill the tempting shortcut properly, because you'll be tempted again around Chapter 4 when driver installation gets fiddly.</p>
+
+<p>The shortcut is to skip the driver and just simulate keyboard and mouse input, which Windows lets any ordinary program do through a function called <code>SendInput</code>. Phone says Ⓐ, server presses <kbd>Space</kbd>.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="Comparison of keyboard simulation versus virtual controller">
+  <rect class="s-box-r" x="30" y="30" width="310" height="190" rx="10"/>
+  <text class="s-lbl" x="50" y="56">shortcut · fake keystrokes</text>
+  <text class="s-t" x="50" y="82">✓  No driver to install</text>
+  <text class="s-t" x="50" y="104">✓  Working in an afternoon</text>
+  <text class="s-t" x="50" y="132" fill="var(--red)">✗  No analog — sprint or stand still</text>
+  <text class="s-t" x="50" y="154" fill="var(--red)">✗  Game shows keyboard prompts</text>
+  <text class="s-t" x="50" y="176" fill="var(--red)">✗  Steam sees no controller</text>
+  <text class="s-t" x="50" y="198" fill="var(--red)">✗  Some games ignore it entirely</text>
+
+  <rect class="s-box-g" x="360" y="30" width="310" height="190" rx="10"/>
+  <text class="s-lbl" x="380" y="56">the real thing · virtual pad</text>
+  <text class="s-t" x="380" y="82" fill="var(--red)">✗  Driver install, admin rights, UAC</text>
+  <text class="s-t" x="380" y="104" fill="var(--red)">✗  More to understand up front</text>
+  <text class="s-t" x="380" y="132">✓  Full analog sticks and triggers</text>
+  <text class="s-t" x="380" y="154">✓  Correct Ⓐ Ⓑ Ⓧ Ⓨ prompts</text>
+  <text class="s-t" x="380" y="176">✓  Steam Input, Big Picture, all of it</text>
+  <text class="s-t" x="380" y="198">✓  Works in every game, forever</text>
+</svg>
+</div>
+<figcaption>The shortcut is cheaper today and more expensive every day after. The real approach costs you one installer and then stops costing anything.</figcaption>
+</figure>
+
+<details>
+<summary>Someone actually shipped the shortcut — here's how it went<span class="tag">case study</span></summary>
+<div class="dd">
+<p><a href="https://kitswas.github.io/VirtualGamePad/">VirtualGamePad</a> is a well-made open-source project in exactly this space. It deliberately refuses to ship a driver, because it wants to be a portable download with no installer — a genuinely appealing goal, and it's how they get onto F-Droid.</p>
+<p>The consequence: its reliable, default mode is keyboard/mouse mapping. Its actual gamepad mode is listed on its own roadmap under ongoing experiments as <em>"implemented but experiencing crashes."</em></p>
+<p>This isn't a criticism of them — it's a clean demonstration that the trade-off is real and unavoidable. You cannot have both a driverless install and a dependable virtual controller. Pick one deliberately. We're picking the controller. Full analysis in Chapter 12.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>The technique is a <strong>virtual bus driver</strong> — software that reports devices on a bus that doesn't physically exist.</li>
+    <li>Windows enumerates those devices like real hardware, because the kernel's test for "a device exists" is simply that a driver said so.</li>
+    <li>Steam isn't being tricked. It asks Windows and reports the answer honestly — the single false statement is made far below it.</li>
+    <li>You get analog input, correct button prompts, Steam Input, and universal game support <strong>for free</strong>, as consequences rather than features.</li>
+    <li><strong>ViGEmBus</strong> is the driver (install once); <strong>ViGEmClient</strong> is the library your normal program calls. You don't write kernel code.</li>
+    <li>ViGEmBus is retired but functional — we'll isolate it behind an interface so it's replaceable.</li>
+    <li>Simulating keystrokes is the tempting shortcut, and it's a dead end. Real projects have proven that.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch02.html"><span class="dir">← Previous</span><span class="ttl">2. How a game hears a button press</span></a>
+  <a href="ch04.html" class="next"><span class="dir">Next →</span><span class="ttl">4. Making a fake gamepad appear</span></a>
+</div>
+
+</div>
+</body>
+</html>

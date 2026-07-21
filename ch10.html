@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 10 — Finding each other</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part IV</a>
+    <span class="now">10 / 12</span>
+  </div>
+  <div class="progress"><div style="width:83.3%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Ten <span class="badge b-2">building</span></div>
+  <h1>Finding each other</h1>
+  <p class="lede">Typing <code>192.168.1.12</code> into a phone is the roughest edge in the entire product. Here's how to remove it — and how much effort that's worth.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 5:</b> IP addresses and ports. <b>And Ch 8:</b> the DISCOVER message type we reserved.</div>
+
+<h2>The problem, stated fairly</h2>
+
+<p>Your phone needs the server's IP address. It has no way to guess it — addresses are assigned by your router and change over time. So either the user supplies it, or the phone goes looking.</p>
+
+<p>This is worth solving well because it's the very first thing anyone does with your app, and first impressions are disproportionate. But it's also worth <em>not</em> over-solving, because every tier of sophistication brings new ways to fail.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 220" role="img" aria-label="Three tiers of discovery, escalating in polish and fragility">
+  <rect class="s-box-g" x="25" y="35" width="200" height="135" rx="9"/>
+  <text class="s-lbl" x="45" y="60">tier 1 · build first</text>
+  <text class="s-t" x="45" y="86">Type the IP</text>
+  <text class="s-t-sm" x="45" y="110">Server displays its address,</text>
+  <text class="s-t-sm" x="45" y="128">user copies it across.</text>
+  <text class="s-t-sm" x="45" y="156" fill="var(--green)">10 minutes. Never remove it.</text>
+
+  <rect class="s-box-a" x="245" y="35" width="210" height="135" rx="9"/>
+  <text class="s-lbl" x="265" y="60">tier 2 · the sweet spot</text>
+  <text class="s-t" x="265" y="86">Shout and listen</text>
+  <text class="s-t-sm" x="265" y="110">Phone broadcasts to everyone;</text>
+  <text class="s-t-sm" x="265" y="128">servers answer.</text>
+  <text class="s-t-sm" x="265" y="156" fill="var(--accent)">~30 lines. Covers most homes.</text>
+
+  <rect class="s-box" x="475" y="35" width="200" height="135" rx="9"/>
+  <text class="s-lbl" x="495" y="60">tier 3 · only if needed</text>
+  <text class="s-t" x="495" y="86">mDNS</text>
+  <text class="s-t-sm" x="495" y="110">The proper standard, used by</text>
+  <text class="s-t-sm" x="495" y="128">printers and Chromecasts.</text>
+  <text class="s-t-sm" x="495" y="156" fill="var(--dim)">More parts, more failure modes.</text>
+
+  <path class="s-arr" d="M230 100 H240" marker-end="url(#r1)"/>
+  <path class="s-arr" d="M460 100 H470" marker-end="url(#r1)"/>
+  <text class="s-t-sm" x="350" y="202" text-anchor="middle">Don't build discovery before you have something worth discovering.</text>
+  <defs><marker id="r1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker></defs>
+</svg>
+</div>
+</figure>
+
+<h2>Tier 1 — type the IP</h2>
+
+<p>Genuinely: build this first, today. It takes ten minutes and it unblocks all your other testing. And keep it permanently as a fallback, because it's the thing that still works when the network is doing something strange.</p>
+
+<p>Make the server display its own address prominently. Finding it is one call:</p>
+
+<pre><code>var ip = Dns.GetHostEntry(Dns.GetHostName())
+            .AddressList
+            .First(a =&gt; a.AddressFamily == AddressFamily.InterNetwork);
+Console.WriteLine($"Connect your phone to:  {ip}:27500");</code></pre>
+
+<h2>Tier 2 — broadcast</h2>
+
+<p>Networks have a special address meaning "everyone on this network." Send there and every device receives it. Our server is listening; nothing else cares.</p>
+
+<div class="define">
+  <span class="term">Broadcast</span>
+  <p>The address <code>255.255.255.255</code> means "deliver this to every device on the local network." It only works with UDP — the whole idea is incompatible with TCP's one-to-one connections.</p>
+  <p>It cannot leave your local network. Routers refuse to forward broadcasts, which is exactly the containment we want.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="Broadcast discovery handshake">
+  <rect class="s-box-b" x="30" y="95" width="140" height="60" rx="8"/>
+  <text class="s-t" x="100" y="120" text-anchor="middle">Phone</text>
+  <text class="s-t-sm" x="100" y="140" text-anchor="middle">192.168.1.47</text>
+
+  <path class="s-arr-a" d="M178 105 L400 45" marker-end="url(#s1)"/>
+  <path class="s-arr-a" d="M178 120 L400 120" marker-end="url(#s1)"/>
+  <path class="s-arr-a" d="M178 140 L400 205" marker-end="url(#s1)"/>
+  <text class="s-em" x="265" y="88" text-anchor="middle">DISCOVER →</text>
+  <text class="s-t-sm" x="265" y="160" text-anchor="middle">sent once, to everyone</text>
+
+  <rect class="s-box" x="405" y="22" width="180" height="46" rx="7"/>
+  <text class="s-t-sm" x="495" y="50" text-anchor="middle">a printer — ignores it</text>
+
+  <rect class="s-box-g" x="405" y="97" width="180" height="46" rx="7"/>
+  <text class="s-t" x="495" y="125" text-anchor="middle">your PC — replies!</text>
+
+  <rect class="s-box" x="405" y="182" width="180" height="46" rx="7"/>
+  <text class="s-t-sm" x="495" y="210" text-anchor="middle">a smart TV — ignores it</text>
+
+  <path class="s-arr-g" d="M600 120 Q660 120 660 235 L120 235 L110 162" marker-end="url(#s2)"/>
+  <text class="s-t-sm" x="380" y="230" text-anchor="middle" fill="var(--green)">← WELCOME: "I'm a pad server at 192.168.1.12:27500"</text>
+
+  <defs>
+    <marker id="s1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+    <marker id="s2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption>The phone shouts once and collects whatever answers arrive within a short window — then shows a list, because there might be more than one PC running your server.</figcaption>
+</figure>
+
+<pre><code>// Phone: ask
+val sock = DatagramSocket().apply { broadcast = true; soTimeout = 800 }
+val ask  = byteArrayOf(0xDA.toByte(), PROTO_VERSION, MSG_DISCOVER, 0)
+sock.send(DatagramPacket(ask, ask.size,
+          InetAddress.getByName("255.255.255.255"), DISCOVERY_PORT))
+
+// Then collect replies until the timeout expires
+val servers = mutableListOf&lt;InetAddress&gt;()
+val reply = DatagramPacket(ByteArray(64), 64)
+while (true) {
+    try { sock.receive(reply) } catch (e: SocketTimeoutException) { break }
+    if (reply.data[0] == 0xDA.toByte() &amp;&amp; reply.data[2] == MSG_WELCOME)
+        servers += reply.address
+}</code></pre>
+
+<div class="box warn">
+  <span class="lb">When broadcast fails</span>
+  <p>Some routers enable <strong>AP isolation</strong>, which deliberately stops wireless devices from talking to each other. It's common on guest networks and in hotels and student accommodation.</p>
+  <p>Nothing you write can defeat it — it's the network refusing, by design. This is precisely why Tier 1 stays in the app forever, and why your error message should say <em>"no servers found — try entering the address manually"</em> rather than just failing.</p>
+</div>
+
+<h2>Tier 3 — mDNS</h2>
+
+<p>The standards-based answer. Your server advertises a service name like <code>_padserver._udp.local</code>, and Android discovers it through <code>NsdManager</code>. It's how printers and Chromecasts announce themselves.</p>
+
+<p>It's better in principle: no hand-rolled protocol, works across some network configurations where raw broadcast doesn't. But on Windows it needs either Apple's Bonjour service present or you bundling an mDNS library, and it's more machinery to debug.</p>
+
+<div class="box">
+  <span class="lb">Recommendation</span>
+  <p>Ship Tier 1 in week one. Add Tier 2 once the core works. Only reach for Tier 3 if real users report broadcast failing — and by then you'll have the diagnostic information to know whether it would actually help.</p>
+</div>
+
+<h2>The security question</h2>
+
+<p>Let's be straight about this rather than either ignoring it or over-engineering it.</p>
+
+<p>You have an open UDP port that drives a virtual controller. Anyone on your network can send packets to it and move your character. Is that a problem?</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 200" role="img" aria-label="Threat model: who can actually reach the port">
+  <rect class="s-box-g" x="30" y="30" width="310" height="145" rx="10"/>
+  <text class="s-lbl" x="50" y="56">who can reach it</text>
+  <text class="s-t-sm" x="50" y="82">Your family, on your Wi-Fi</text>
+  <text class="s-t-sm" x="50" y="104">A flatmate who knows the password</text>
+  <text class="s-t-sm" x="50" y="126">Another program on your own PC</text>
+  <text class="s-t-sm" x="50" y="156" fill="var(--green)">Worst realistic case: someone</text>
+  <text class="s-t-sm" x="50" y="172" fill="var(--green)">annoying makes your character jump</text>
+
+  <rect class="s-box-r" x="360" y="30" width="310" height="145" rx="10"/>
+  <text class="s-lbl" x="380" y="56">who cannot</text>
+  <text class="s-t-sm" x="380" y="82">Anyone on the internet — private</text>
+  <text class="s-t-sm" x="380" y="100">addresses aren't routable (Ch 5)</text>
+  <text class="s-t-sm" x="380" y="126">Anyone on a different network</text>
+  <text class="s-t-sm" x="380" y="156" fill="var(--red)">…unless you deliberately forward</text>
+  <text class="s-t-sm" x="380" y="172" fill="var(--red)">the port through your router. Don't.</text>
+</svg>
+</div>
+</figure>
+
+<div class="define">
+  <span class="term">Threat model</span>
+  <p>An honest description of who might attack you, what they could gain, and what it would cost them. Security work without one tends to produce elaborate defences against irrelevant threats while leaving obvious gaps.</p>
+  <p>Ours: <em>people already on your home network, whose worst achievable outcome is being irritating.</em> That deserves a proportionate response, not encryption.</p>
+</div>
+
+<p>The proportionate answer is a shared secret. The server shows a QR code containing <code>ip:port:token</code>; the phone scans it; every packet carries the token; the server drops packets without it.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 165" role="img" aria-label="QR pairing solving discovery and authentication together">
+  <rect class="s-box-a" x="40" y="35" width="170" height="95" rx="9"/>
+  <text class="s-t-sm" x="125" y="58" text-anchor="middle">server shows a QR</text>
+  <g transform="translate(98,68)">
+    <rect x="0" y="0" width="54" height="54" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+    <rect x="6" y="6" width="14" height="14" fill="var(--accent)"/>
+    <rect x="34" y="6" width="14" height="14" fill="var(--accent)"/>
+    <rect x="6" y="34" width="14" height="14" fill="var(--accent)"/>
+    <rect x="26" y="26" width="6" height="6" fill="var(--accent)"/>
+    <rect x="38" y="38" width="6" height="6" fill="var(--accent)"/>
+    <rect x="26" y="44" width="6" height="6" fill="var(--accent)"/>
+  </g>
+
+  <path class="s-arr-a" d="M218 82 H288" marker-end="url(#t1)"/>
+  <text class="s-t-sm" x="253" y="74" text-anchor="middle">scan</text>
+
+  <rect class="s-box-g" x="295" y="35" width="360" height="95" rx="9"/>
+  <text class="s-t-sm" x="315" y="60">one gesture delivers all three:</text>
+  <text class="s-t-sm" x="315" y="84">· the address — no typing, no discovery protocol</text>
+  <text class="s-t-sm" x="315" y="104">· the port</text>
+  <text class="s-t-sm" x="315" y="122">· a shared token — proves you were in the room</text>
+
+  <defs><marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+<figcaption><b>This isn't cryptography</b> and won't survive someone capturing your Wi-Fi traffic. It stops accidental and casual interference, which is the entire threat model. It also happens to solve discovery <em>and</em> pairing in a single scan, which is why polished tools in this space converge on it.</figcaption>
+</figure>
+
+<div class="box warn">
+  <span class="lb">One thing not to do</span>
+  <p>Do not forward this port through your router so you can play from outside the house. Internet latency makes it unplayable anyway (Chapter 6), and you'd be exposing an unauthenticated input device to the entire internet.</p>
+  <p>This is LAN-only software by nature. That's a feature.</p>
+</div>
+
+<details>
+<summary>Should you add encryption?<span class="tag">judgement call</span></summary>
+<div class="dd">
+<p>Probably not, and there's an instructive precedent. The VirtualGamePad project has encryption on its roadmap, with a note that a security professional told the author it's unnecessary for this use case.</p>
+<p>That's the right call, for three reasons:</p>
+<ul>
+  <li><strong>Nothing secret is being transmitted.</strong> The payload is "the left stick is at -31000." Intercepting it reveals that someone is playing a game.</li>
+  <li><strong>An attacker is already inside.</strong> To capture your packets they need to be on your Wi-Fi. Someone with that access has far more interesting targets than your gamepad.</li>
+  <li><strong>It costs latency and complexity</strong> in the one loop where you've worked hardest to have neither.</li>
+</ul>
+<p>A shared token is the right amount of protection. Knowing <em>when to stop</em> is a real engineering skill, and this is a clean example of it.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Discovery comes in three tiers: <strong>manual entry</strong>, <strong>UDP broadcast</strong>, and <strong>mDNS</strong>.</li>
+    <li>Build manual entry first and never remove it — it's the fallback that always works.</li>
+    <li><strong>Broadcast</strong> to <code>255.255.255.255</code> reaches every device on the network, works only over UDP, and can't escape your LAN.</li>
+    <li><strong>AP isolation</strong> defeats broadcast entirely and you can't work around it — so fail with a helpful message.</li>
+    <li>A <strong>threat model</strong> keeps security effort proportionate. Ours is "people already on your Wi-Fi being annoying."</li>
+    <li>A <strong>QR code</strong> delivers address, port, and a shared token in one gesture — solving discovery and pairing together.</li>
+    <li>Encryption is not warranted here, and knowing where to stop is part of the job.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch09.html"><span class="dir">← Previous</span><span class="ttl">9. Glass becomes a joystick</span></a>
+  <a href="ch11.html" class="next"><span class="dir">Next →</span><span class="ttl">11. Rumble, multiplayer, and not breaking</span></a>
+</div>
+
+</div>
+</body>
+</html>

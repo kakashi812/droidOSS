@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 7 — Choosing how to speak: UDP vs TCP</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part III</a>
+    <span class="now">07 / 12</span>
+  </div>
+  <div class="progress"><div style="width:58.3%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Seven <span class="badge b-2">building</span></div>
+  <h1>Choosing how to speak: UDP vs TCP</h1>
+  <p class="lede">There are two ways to send data over a network. One guarantees delivery. For us, that guarantee is a liability — and understanding why teaches something that generalises well beyond this project.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 6:</b> jitter hurts more than constant delay. <b>And Ch 1:</b> controllers send complete state, not events. That second one finally pays off here.</div>
+
+<h2>The two options</h2>
+
+<p>When you create a socket, you pick a protocol. In practice there are two, and they make opposite promises.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 240" role="img" aria-label="TCP and UDP compared">
+  <rect class="s-box-b" x="30" y="30" width="310" height="190" rx="10"/>
+  <text class="s-lbl" x="50" y="56">TCP</text>
+  <text class="s-t" x="50" y="80" font-size="15">"Everything arrives, in order."</text>
+  <text class="s-t-sm" x="50" y="108">✓  Lost data is automatically re-sent</text>
+  <text class="s-t-sm" x="50" y="130">✓  Never arrives shuffled</text>
+  <text class="s-t-sm" x="50" y="152">✓  Notices if the other end vanishes</text>
+  <text class="s-t-sm" x="50" y="180" fill="var(--red)">✗  To keep those promises, it will</text>
+  <text class="s-t-sm" x="50" y="197" fill="var(--red)">   stop everything and wait</text>
+
+  <rect class="s-box-a" x="360" y="30" width="310" height="190" rx="10"/>
+  <text class="s-lbl" x="380" y="56">UDP</text>
+  <text class="s-t" x="380" y="80" font-size="15">"I'll throw it. Good luck."</text>
+  <text class="s-t-sm" x="380" y="108" fill="var(--red)">✗  Packets can vanish silently</text>
+  <text class="s-t-sm" x="380" y="130" fill="var(--red)">✗  Can arrive out of order</text>
+  <text class="s-t-sm" x="380" y="152" fill="var(--red)">✗  No idea if anyone's listening</text>
+  <text class="s-t-sm" x="380" y="180">✓  Never, ever waits</text>
+  <text class="s-t-sm" x="380" y="197">✓  Newest data always gets through first</text>
+</svg>
+</div>
+</figure>
+
+<p>Read those columns cold and TCP looks strictly better. It's what websites, email, and file downloads use — for good reason. If you're downloading a photo, a missing chunk means a corrupted photo, so waiting is obviously correct.</p>
+
+<p><strong>We're going to choose UDP.</strong> Here's why that isn't reckless.</p>
+
+<h2>What "guaranteed delivery" actually costs</h2>
+
+<p>TCP's promise is that data arrives in order. The only way to keep that promise is: when something goes missing, <em>stop and wait for it</em> — and hold back everything that arrived behind it, because delivering that would break the ordering guarantee.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 350" role="img" aria-label="Timeline comparison of TCP stalling versus UDP self-healing">
+  <text class="s-lbl" x="30" y="26">TCP · one packet is lost at time zero</text>
+  <line x1="30" y1="96" x2="645" y2="96" stroke="var(--line)" stroke-width="2"/>
+
+  <g transform="translate(60,96)">
+    <rect class="s-box-r" x="-13" y="-27" width="26" height="27" rx="3"/>
+    <line x1="-9" y1="-23" x2="9" y2="-4" stroke="var(--red)" stroke-width="2"/>
+    <line x1="9" y1="-23" x2="-9" y2="-4" stroke="var(--red)" stroke-width="2"/>
+    <text class="s-t-sm" x="0" y="18" text-anchor="middle">lost</text>
+  </g>
+
+  <rect class="s-box" x="127" y="69" width="21" height="27" rx="3"/>
+  <rect class="s-box" x="177" y="69" width="21" height="27" rx="3"/>
+  <rect class="s-box" x="227" y="69" width="21" height="27" rx="3"/>
+  <rect class="s-box" x="277" y="69" width="21" height="27" rx="3"/>
+
+  <path class="s-zone" d="M118 108 H420 M118 108 V120 M420 108 V120" stroke="var(--red)"/>
+  <text class="s-t-sm" x="269" y="136" text-anchor="middle" fill="var(--red)">these all arrived safely — and are being held back, undelivered</text>
+  <text class="s-em" x="240" y="52" text-anchor="middle">▼ everything stops ▼</text>
+
+  <g transform="translate(440,96)">
+    <rect class="s-box-r" x="-13" y="-27" width="26" height="27" rx="3"/>
+    <text class="s-t-sm" x="0" y="18" text-anchor="middle">re-sent, arrives at 30 ms</text>
+    <text class="s-t-sm" x="0" y="36" text-anchor="middle" fill="var(--red)">describes where your thumb was 30 ms ago</text>
+  </g>
+  <text class="s-t-sm" x="600" y="92" fill="var(--red)">then a lurch</text>
+
+  <line x1="30" y1="196" x2="670" y2="196" stroke="var(--line)" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <text class="s-lbl" x="30" y="224">UDP · same loss, full state every 8 ms</text>
+  <line x1="30" y1="290" x2="645" y2="290" stroke="var(--line)" stroke-width="2"/>
+
+  <g transform="translate(60,290)">
+    <rect class="s-box-r" x="-13" y="-27" width="26" height="27" rx="3"/>
+    <line x1="-9" y1="-23" x2="9" y2="-4" stroke="var(--red)" stroke-width="2"/>
+    <line x1="9" y1="-23" x2="-9" y2="-4" stroke="var(--red)" stroke-width="2"/>
+    <text class="s-t-sm" x="0" y="18" text-anchor="middle">lost</text>
+  </g>
+  <g>
+    <rect class="s-box-g" x="127" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="177" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="227" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="277" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="327" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="377" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="427" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="477" y="263" width="21" height="27" rx="3"/>
+    <rect class="s-box-g" x="527" y="263" width="21" height="27" rx="3"/>
+  </g>
+  <text class="s-t-sm" x="137" y="312" text-anchor="middle">+8 ms</text>
+  <text class="s-em" x="350" y="248" text-anchor="middle">each one is a complete snapshot — applied the instant it lands</text>
+  <text class="s-t-sm" x="360" y="332" text-anchor="middle" fill="var(--green)">what the player felt: nothing at all</text>
+</svg>
+</div>
+<figcaption><b>The re-sent packet isn't just late — it's stale, and therefore worthless.</b> It describes a thumb position that stopped being true 30 ms ago. TCP paid a visible stutter to deliver data that should have been thrown away.</figcaption>
+</figure>
+
+<div class="box good">
+  <span class="lb">The line worth remembering</span>
+  <p><strong>Losing a packet costs us nothing. Waiting for one costs us everything.</strong></p>
+  <p>That's only true because of the decision made back in Chapter 1 — that we send complete state rather than events. Because every packet is self-sufficient, the next one 8 ms later contains the entire truth. There is literally nothing to recover.</p>
+</div>
+
+<div class="analogy">
+  <span class="lb">Think of it this way</span>
+  <p>TCP is registered post. Every letter arrives, in order, signed for. If one goes missing the post office holds up your entire mail delivery until it's found — including the letters already sitting in the depot.</p>
+  <p>UDP is shouting across a room. Some words get lost in the noise. But you're repeating yourself 125 times a second, so it doesn't matter — and crucially, you never stop and wait for someone to confirm they heard the last one.</p>
+</div>
+
+<h2>Why events would have forced our hand</h2>
+
+<p>Chapter 1 made a point of distinguishing state from events, and promised it would matter. Here's the payoff.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="What happens when an event is lost versus when a state snapshot is lost">
+  <rect class="s-box-r" x="30" y="28" width="310" height="200" rx="10"/>
+  <text class="s-lbl" x="50" y="54">if we sent events</text>
+  <text class="s-t-mono" x="50" y="80">"A pressed"</text>
+  <text class="s-t-mono" x="50" y="102" fill="var(--red)">"A released"  ← lost</text>
+  <text class="s-t-sm" x="50" y="132">The server still thinks Ⓐ is held.</text>
+  <text class="s-t-sm" x="50" y="152">It will think so forever.</text>
+  <text class="s-t-sm" x="50" y="180" fill="var(--red)">So you'd need guaranteed delivery.</text>
+  <text class="s-t-sm" x="50" y="198" fill="var(--red)">So you'd need TCP.</text>
+  <text class="s-t-sm" x="50" y="216" fill="var(--red)">So you'd inherit the stalling.</text>
+
+  <rect class="s-box-g" x="360" y="28" width="310" height="200" rx="10"/>
+  <text class="s-lbl" x="380" y="54">because we send state</text>
+  <text class="s-t-mono" x="380" y="80">buttons = 0x1000</text>
+  <text class="s-t-mono" x="380" y="102" fill="var(--red)">buttons = 0x0000  ← lost</text>
+  <text class="s-t-mono" x="380" y="124">buttons = 0x0000  ← 8 ms later</text>
+  <text class="s-t-sm" x="380" y="154">Corrected automatically.</text>
+  <text class="s-t-sm" x="380" y="174">Nobody noticed.</text>
+  <text class="s-t-sm" x="380" y="202" fill="var(--green)">So unreliable delivery is fine.</text>
+  <text class="s-t-sm" x="380" y="220" fill="var(--green)">So we can use UDP.</text>
+</svg>
+</div>
+<figcaption>Two design decisions that look independent are in fact one decision. <b>Sending state is what buys you the right to use UDP.</b> Choose events and you're locked into TCP and everything that comes with it.</figcaption>
+</figure>
+
+<h2>The one thing you must add</h2>
+
+<p>UDP can deliver packets out of order. If snapshot #58 arrives after #59, your stick briefly jumps backwards to an older position — a visible glitch.</p>
+
+<p>The fix is four lines. Number every packet, and ignore anything that isn't newer than what you've already seen.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 180" role="img" aria-label="Discarding out-of-order packets by sequence number">
+  <text class="s-lbl" x="30" y="26">packets arriving at the server</text>
+  <g>
+    <rect class="s-box-g" x="30" y="40" width="72" height="42" rx="5"/>
+    <text class="s-t-mono" x="66" y="66" text-anchor="middle">#57</text>
+    <rect class="s-box-g" x="112" y="40" width="72" height="42" rx="5"/>
+    <text class="s-t-mono" x="148" y="66" text-anchor="middle">#59</text>
+    <rect class="s-box-r" x="194" y="40" width="72" height="42" rx="5"/>
+    <text class="s-t-mono" x="230" y="66" text-anchor="middle">#58</text>
+    <rect class="s-box-g" x="276" y="40" width="72" height="42" rx="5"/>
+    <text class="s-t-mono" x="312" y="66" text-anchor="middle">#60</text>
+    <rect class="s-box-g" x="358" y="40" width="72" height="42" rx="5"/>
+    <text class="s-t-mono" x="394" y="66" text-anchor="middle">#61</text>
+  </g>
+  <text class="s-t-sm" x="66" y="102" text-anchor="middle">apply</text>
+  <text class="s-t-sm" x="148" y="102" text-anchor="middle">apply</text>
+  <text class="s-t-sm" x="230" y="102" text-anchor="middle" fill="var(--red)">discard —</text>
+  <text class="s-t-sm" x="230" y="118" text-anchor="middle" fill="var(--red)">older than 59</text>
+  <text class="s-t-sm" x="312" y="102" text-anchor="middle">apply</text>
+  <text class="s-t-sm" x="394" y="102" text-anchor="middle">apply</text>
+
+  <rect class="s-box" x="460" y="40" width="210" height="80" rx="8"/>
+  <text class="s-t-sm" x="480" y="64">We never ask for #58 back.</text>
+  <text class="s-t-sm" x="480" y="84">It's already obsolete — #59</text>
+  <text class="s-t-sm" x="480" y="104">superseded it entirely.</text>
+</svg>
+</div>
+</figure>
+
+<pre><code>if (packet.seq &lt;= lastSeq) return;   // stale or duplicate — bin it
+lastSeq = packet.seq;
+ApplyState(packet);</code></pre>
+
+<div class="define">
+  <span class="term">Sequence number</span>
+  <p>A counter that increases by one with every packet sent. Its only purpose is to let the receiver tell "newer" from "older." We'll use a 32-bit number, which at 125 packets per second takes about <strong>1.1 years</strong> of continuous play to run out.</p>
+</div>
+
+<details>
+<summary>Being strictly correct about counter wrap-around<span class="tag">pedantry, but real</span></summary>
+<div class="dd">
+<p>After roughly 1.1 years of continuous play, the counter wraps back to zero. At that instant, <code>packet.seq &lt;= lastSeq</code> is true for every subsequent packet, and your controller stops responding forever.</p>
+<p>Nobody will hit this. But the correct version costs nothing:</p>
+<pre><code>if ((int)(packet.seq - lastSeq) &lt;= 0) return;</code></pre>
+<p>Subtracting unsigned values and interpreting the result as signed handles the wrap correctly — the difference comes out as a small positive number even across the boundary. It's a standard trick worth having in your head; you'll meet it again in anything involving rolling counters.</p>
+</div>
+</details>
+
+<details>
+<summary>What about Bluetooth? DroidJoy supports it<span class="tag">scope decision</span></summary>
+<div class="dd">
+<p>It does, and you should still skip it for now.</p>
+<ul>
+  <li><strong>It's slower.</strong> Bluetooth serial adds meaningful latency versus 5 GHz Wi-Fi, so you'd be working hard for a worse result.</li>
+  <li><strong>Android's Bluetooth stack is genuinely unpleasant.</strong> Pairing flows, permission changes across Android versions, and inconsistent device behaviour. You'd spend your time fighting the platform rather than learning the architecture.</li>
+  <li><strong>You can't inspect it.</strong> With Wi-Fi you can watch every packet in Wireshark and test the server with a Python script. With Bluetooth you're debugging blind.</li>
+</ul>
+<p>Its one genuine advantage is working with no Wi-Fi network present. Worth adding eventually — just not while you're still learning the shape of the system.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li><strong>TCP</strong> guarantees delivery and ordering, and keeps that promise by stalling everything when data goes missing.</li>
+    <li><strong>UDP</strong> guarantees nothing and never waits.</li>
+    <li>For realtime input, a re-sent packet is <strong>stale and worthless</strong> — it describes a moment that has passed.</li>
+    <li>Losing a packet costs nothing; waiting for one costs everything.</li>
+    <li>Sending <strong>state rather than events</strong> is precisely what makes unreliable delivery acceptable. The two decisions are one decision.</li>
+    <li>Add a <strong>sequence number</strong> and discard anything not newer — that's the only thing UDP asks of you.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch06.html"><span class="dir">← Previous</span><span class="ttl">6. Where the milliseconds go</span></a>
+  <a href="ch08.html" class="next"><span class="dir">Next →</span><span class="ttl">8. Designing the message</span></a>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 9 — Glass becomes a joystick</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part IV</a>
+    <span class="now">09 / 12</span>
+  </div>
+  <div class="progress"><div style="width:75%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Nine <span class="badge b-3">deeper</span></div>
+  <h1>Glass becomes a joystick</h1>
+  <p class="lede">A flat sheet of glass has no edges, no springs, and no way to tell your thumb where it is. Making it feel like a controller anyway is mostly a handful of small decisions — each of which is easy to get subtly wrong.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 8:</b> the 20-byte packet the phone must produce. <b>And Ch 6:</b> fixed-rate sending at 125 Hz.</div>
+
+<h2>The one thing glass can't do</h2>
+
+<p>A physical stick springs back to centre, stops at its edges, and pushes back against your thumb. Glass does none of that. Every bit of "feel" has to be manufactured in software, and if you skip a step the result is a controller people describe as "floaty" or "unresponsive" without being able to say why.</p>
+
+<p>Fortunately the fixes are small. There are four of them.</p>
+
+<h2>Fix 1 — Track fingers by identity, not position</h2>
+
+<p>Android reports touches through a stream of events. The naive approach — put a button widget on screen and listen for taps — falls apart immediately, because playing a game means holding a stick with one thumb <em>while</em> tapping buttons with the other.</p>
+
+<div class="define">
+  <span class="term">Pointer</span>
+  <p>Android calls each finger currently on the screen a <strong>pointer</strong>. Multiple pointers exist at once, and each gets an <strong>ID</strong> that stays constant for as long as that finger stays down.</p>
+  <p>It also has an <strong>index</strong> — its slot in the current event's list. The index shifts around as other fingers lift. <strong>The ID is stable; the index is not.</strong> Confusing them is the single most common bug in touch controls.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="Why pointer index shifts but pointer ID is stable">
+  <text class="s-lbl" x="30" y="24">three fingers down — the middle one lifts</text>
+
+  <rect class="s-box" x="30" y="38" width="290" height="90" rx="8"/>
+  <text class="s-t-sm" x="50" y="60">before</text>
+  <text class="s-t-mono" x="50" y="84">index 0 → id 5 → left stick</text>
+  <text class="s-t-mono" x="50" y="104">index 1 → id 7 → button A</text>
+  <text class="s-t-mono" x="50" y="120">index 2 → id 9 → button B</text>
+
+  <path class="s-arr" d="M330 84 H375" marker-end="url(#p1)"/>
+
+  <rect class="s-box" x="382" y="38" width="290" height="90" rx="8"/>
+  <text class="s-t-sm" x="402" y="60">after id 7 lifts</text>
+  <text class="s-t-mono" x="402" y="84">index 0 → id 5 → left stick</text>
+  <text class="s-t-mono" x="402" y="104" fill="var(--red)">index 1 → id 9 → button B</text>
+  <text class="s-t-sm" x="402" y="122" fill="var(--red)">↑ index 1 now means a different finger</text>
+
+  <rect class="s-box-r" x="30" y="150" width="310" height="80" rx="8"/>
+  <text class="s-lbl" x="50" y="174">tracking by index</text>
+  <text class="s-t-sm" x="50" y="196">You lift the Ⓐ button finger and your</text>
+  <text class="s-t-sm" x="50" y="214">Ⓑ thumb starts driving the Ⓐ button.</text>
+
+  <rect class="s-box-g" x="360" y="150" width="312" height="80" rx="8"/>
+  <text class="s-lbl" x="380" y="174">tracking by id</text>
+  <text class="s-t-sm" x="380" y="196">id 9 was mapped to Ⓑ when it went down</text>
+  <text class="s-t-sm" x="380" y="214">and stays mapped to Ⓑ. Correct.</text>
+
+  <defs><marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker></defs>
+</svg>
+</div>
+</figure>
+
+<p>So: one full-screen view, and a map from pointer ID to whichever control that finger grabbed when it landed.</p>
+
+<pre><code>override fun onTouchEvent(e: MotionEvent): Boolean {
+    when (e.actionMasked) {
+        MotionEvent.ACTION_DOWN,
+        MotionEvent.ACTION_POINTER_DOWN -> {
+            val i  = e.actionIndex
+            val id = e.getPointerId(i)
+            hitTest(e.getX(i), e.getY(i))?.let { control ->
+                pointerToControl[id] = control        // decided once, kept
+                control.onDown(e.getX(i), e.getY(i))
+            }
+        }
+        MotionEvent.ACTION_MOVE -> {
+            // one MOVE event carries EVERY active finger
+            for (i in 0 until e.pointerCount) {
+                val id = e.getPointerId(i)
+                pointerToControl[id]?.onMove(e.getX(i), e.getY(i))
+            }
+        }
+        MotionEvent.ACTION_UP,
+        MotionEvent.ACTION_POINTER_UP,
+        MotionEvent.ACTION_CANCEL -> {
+            val id = e.getPointerId(e.actionIndex)
+            pointerToControl.remove(id)?.onUp()
+        }
+    }
+    return true
+}</code></pre>
+
+<div class="box warn">
+  <span class="lb">Four ways this goes wrong</span>
+  <ul>
+    <li><strong>Using index instead of ID.</strong> The bug above. Feels random, which makes it miserable to debug.</li>
+    <li><strong>Reading only pointer 0 on MOVE.</strong> A single <code>ACTION_MOVE</code> contains updates for <em>all</em> fingers. Loop over <code>pointerCount</code> or your second thumb simply stops working.</li>
+    <li><strong>Ignoring <code>ACTION_CANCEL</code>.</strong> Pulling down the notification shade cancels the gesture. Miss it and the control stays stuck down — in-game, your character runs into a wall until you notice.</li>
+    <li><strong>Re-testing which control is under the finger on every move.</strong> Decide at DOWN and keep it. Otherwise sliding off a button hands your finger to whatever's underneath.</li>
+  </ul>
+</div>
+
+<h2>Fix 2 — The stick's geometry</h2>
+
+<p>A stick is simpler than it looks: remember where the thumb landed, and measure the vector from there to where it is now.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 300" role="img" aria-label="Virtual stick geometry: clamping and radial deadzone">
+  <g transform="translate(160,150)">
+    <circle cx="0" cy="0" r="110" class="s-box"/>
+    <circle cx="0" cy="0" r="27" fill="var(--red-bg)" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <line x1="-124" y1="0" x2="124" y2="0" stroke="var(--line)"/>
+    <line x1="0" y1="-124" x2="0" y2="124" stroke="var(--line)"/>
+
+    <line x1="0" y1="0" x2="140" y2="-108" stroke="var(--dim)" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <circle cx="140" cy="-108" r="7" fill="var(--surface-3)" stroke="var(--dim)" stroke-width="1.5"/>
+
+    <line x1="0" y1="0" x2="87" y2="-67" class="s-arr-a" marker-end="url(#q1)"/>
+    <circle cx="87" cy="-67" r="8" fill="var(--accent)"/>
+    <circle cx="0" cy="0" r="4" fill="var(--dim)"/>
+    <text class="s-t-sm" x="0" y="135" text-anchor="middle">origin — where the thumb landed</text>
+  </g>
+
+  <text class="s-t-sm" x="315" y="46">thumb has slid past the edge</text>
+  <text class="s-em" x="315" y="96">clamped back onto the circle</text>
+  <text class="s-t-sm" x="315" y="114">then scaled to ±32767</text>
+
+  <text class="s-t-sm" x="315" y="158" fill="var(--red)">deadzone — a circle, not a cross</text>
+  <text class="s-t-sm" x="315" y="178">Deadzone the vector's <tspan font-style="italic">length</tspan>. If you deadzone</text>
+  <text class="s-t-sm" x="315" y="196">each axis separately you carve a plus-shaped</text>
+  <text class="s-t-sm" x="315" y="214">dead region, and diagonals snap to N/S/E/W.</text>
+
+  <text class="s-t-sm" x="315" y="250">Screen Y grows <tspan font-weight="640">downward</tspan>. Stick Y grows <tspan font-weight="640">upward</tspan>.</text>
+  <text class="s-t-sm" x="315" y="268" fill="var(--red)">Forget to invert and every game is upside down.</text>
+
+  <defs><marker id="q1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+</figure>
+
+<pre><code>fun onMove(x: Float, y: Float) {
+    var dx = x - originX
+    var dy = y - originY
+    val dist = hypot(dx, dy)
+
+    if (dist > radius) {          // thumb went past the edge — clamp it
+        dx *= radius / dist
+        dy *= radius / dist
+    }
+
+    axisX = ((dx / radius) * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+    axisY = ((-dy / radius) * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+    //        ↑ the Y inversion
+}</code></pre>
+
+<div class="define">
+  <span class="term">Deadzone</span>
+  <p>A small region around the centre where input is reported as zero. Real sticks need one because they don't mechanically return to perfect centre. Touchscreens need one because your thumb trembles and because "I meant to hold still" should mean still.</p>
+  <p>Do it <strong>radially</strong> — measure the distance from centre, subtract the deadzone from that distance, and rescale what's left across the full range. Doing it per-axis is the classic mistake, and it makes diagonal movement feel like it's snapping to the compass points.</p>
+</div>
+
+<h2>Fix 3 — Let the stick come to the thumb</h2>
+
+<p>The single biggest improvement in feel, and it's about ten lines.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 210" role="img" aria-label="Fixed origin versus floating origin sticks">
+  <rect class="s-box-r" x="30" y="28" width="310" height="160" rx="10"/>
+  <text class="s-lbl" x="50" y="54">fixed origin</text>
+  <circle cx="120" cy="120" r="42" class="s-box"/>
+  <circle cx="120" cy="120" r="4" fill="var(--dim)"/>
+  <circle cx="235" cy="100" r="13" fill="var(--red-bg)" stroke="var(--red)" stroke-width="1.5"/>
+  <text class="s-t-sm" x="235" y="136" text-anchor="middle" fill="var(--red)">thumb landed here</text>
+  <text class="s-t-sm" x="235" y="152" text-anchor="middle" fill="var(--red)">nothing happens</text>
+  <text class="s-t-sm" x="190" y="80" text-anchor="middle">you must look down to find it</text>
+
+  <rect class="s-box-g" x="360" y="28" width="310" height="160" rx="10"/>
+  <text class="s-lbl" x="380" y="54">floating origin</text>
+  <path class="s-zone" d="M390 76 H660 V178 H390 Z"/>
+  <text class="s-t-sm" x="525" y="94" text-anchor="middle">anywhere in this zone works</text>
+  <circle cx="565" cy="132" r="40" class="s-box-g"/>
+  <circle cx="565" cy="132" r="4" fill="var(--green)"/>
+  <text class="s-t-sm" x="470" y="168" text-anchor="middle" fill="var(--green)">the stick appears</text>
+  <text class="s-t-sm" x="470" y="150" text-anchor="middle" fill="var(--green)">wherever you touch</text>
+</svg>
+</div>
+<figcaption>Instead of a stick at a fixed spot, define a <em>zone</em>. Wherever the thumb lands inside it becomes the origin. Players never have to look at the screen to find the stick — which matters enormously, because they're supposed to be looking at the game.</figcaption>
+</figure>
+
+<h2>Fix 4 — Send on a clock, not on touches</h2>
+
+<p>Chapter 6 established that sending at a fixed rate beats sending on change. Here's how that actually looks: the touch handler <em>only updates variables</em>. A separate thread does all the sending, on a timer.</p>
+
+<pre><code>// A dedicated thread. Never the main/UI thread.
+val buf    = ByteArray(20)                                    // allocated ONCE
+val packet = DatagramPacket(buf, buf.size, serverAddr, serverPort)
+val intervalNs = 8_000_000L                                   // 125 Hz
+
+var next = System.nanoTime()
+while (running) {
+    serializeCurrentState(buf)      // overwrite the same array in place
+    socket.send(packet)
+
+    next += intervalNs
+    val sleep = next - System.nanoTime()
+    if (sleep > 0) LockSupport.parkNanos(sleep)
+    else next = System.nanoTime()   // we fell behind — resync, don't spiral
+}</code></pre>
+
+<div class="box">
+  <span class="lb">Two details doing real work</span>
+  <p><strong>One buffer, reused forever.</strong> The loop allocates no memory at all, so it never triggers garbage collection — the one thing in a managed runtime that could cause a genuinely visible stutter. This is exactly the argument from Chapter 8 for choosing fixed binary over JSON, arriving in practice.</p>
+  <p><strong>The resync line.</strong> Without it, one delayed iteration makes the loop try to "catch up" by firing several packets back to back, then the next one, and so on. You get a burst that's worse than the original hiccup. Falling behind should mean <em>give up on the lost time</em>, not repay it.</p>
+</div>
+
+<div class="milestone">
+  <span class="lb">Milestone 3 · the project becomes real</span>
+  <h4>Goal: play an actual game with your phone.</h4>
+  <ol>
+    <li>One screen. A text field for the server IP, hardcoded default.</li>
+    <li>Four rectangles for Ⓐ Ⓑ Ⓧ Ⓨ, one circle for a stick. No art, no polish.</li>
+    <li>Pointer-ID tracking, the stick maths above, the send loop above.</li>
+    <li>Launch a platformer and play it.</li>
+  </ol>
+  <p style="margin-top:12px"><strong>Do not polish the UI before you reach this point.</strong> Everything you learn about how it should look, you learn from playing — not from designing.</p>
+</div>
+
+<details>
+<summary>Stopping Android from sabotaging you<span class="tag">essential settings</span></summary>
+<div class="dd">
+<p>Three platform behaviours will otherwise quietly ruin the experience:</p>
+<p><strong>Wi-Fi power saving.</strong> Android parks the radio between packets to save battery, adding tens of milliseconds unpredictably. Hold a high-performance lock while the app is in front:</p>
+<pre><code>val lock = wifiManager.createWifiLock(
+    WifiManager.WIFI_MODE_FULL_HIGH_PERF, "pad")
+lock.acquire()          // and release() in onPause</code></pre>
+<p><strong>Screen timeout.</strong> Set <code>FLAG_KEEP_SCREEN_ON</code>, or the screen dims mid-game because you haven't "touched" it in a way Android counts.</p>
+<p><strong>Edge gestures.</strong> Use immersive mode to hide the system bars. Otherwise a thumb near the top edge pulls down the notification shade during a boss fight — which also fires <code>ACTION_CANCEL</code>, so handle that properly too.</p>
+</div>
+</details>
+
+<details>
+<summary>Adding gyro aiming<span class="tag">going further</span></summary>
+<div class="dd">
+<p>DroidJoy advertises accelerometer support, but the <strong>gyroscope</strong> is the more useful sensor. An accelerometer measures acceleration including gravity, so it's noisy and can't tell rotation from movement. Gyro measures rotation directly.</p>
+<p>Use <code>TYPE_GAME_ROTATION_VECTOR</code> rather than the raw gyro. It's already fused with other sensors and drift-corrected, and unlike <code>TYPE_ROTATION_VECTOR</code> it excludes magnetometer data — which goes haywire near speakers, magnets, and metal desks.</p>
+<pre><code>sensorManager.registerListener(listener,
+    sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR),
+    SensorManager.SENSOR_DELAY_GAME)</code></pre>
+<p>Map angular offset from a recorded origin onto the right stick. Then add a <strong>recentre button</strong> — not optional. Drift accumulates, players change posture, and without a recentre they'll be aiming at the floor within a minute.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Track fingers by <strong>pointer ID</strong>, never by index — indices shift when other fingers lift.</li>
+    <li>One <code>ACTION_MOVE</code> event carries <strong>every</strong> active finger; loop over all of them.</li>
+    <li>Handle <code>ACTION_CANCEL</code>, or controls stick down when the notification shade opens.</li>
+    <li>Decide which control a finger owns at <strong>touch-down</strong>, and keep it.</li>
+    <li>Stick maths: vector from origin, <strong>clamp</strong> to the radius, scale to ±32767, and <strong>invert Y</strong>.</li>
+    <li>Deadzone <strong>radially</strong>, not per-axis, or diagonals snap to the compass points.</li>
+    <li>A <strong>floating origin</strong> is the biggest feel improvement for the least code.</li>
+    <li>Send from a <strong>fixed-rate thread</strong> using one reused buffer, and resync rather than catch up when late.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch08.html"><span class="dir">← Previous</span><span class="ttl">8. Designing the message</span></a>
+  <a href="ch10.html" class="next"><span class="dir">Next →</span><span class="ttl">10. Finding each other</span></a>
+</div>
+
+</div>
+</body>
+</html>

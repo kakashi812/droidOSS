@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 6 — Where the milliseconds go</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part III</a>
+    <span class="now">06 / 12</span>
+  </div>
+  <div class="progress"><div style="width:50%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Six <span class="badge b-2">building</span></div>
+  <h1>Where the milliseconds go</h1>
+  <p class="lede">A gamepad that responds late is worthless. So let's find out — precisely — what makes it late, and which of those things you can actually influence.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 5:</b> data crosses from phone to server through a socket.</div>
+
+<h2>Why this chapter exists</h2>
+
+<p>Input lag is the one quality bar this project has to clear. A controller that responds 200 ms after your thumb is not a controller, it's a novelty. So it's worth being rigorous rather than superstitious about where the delay comes from.</p>
+
+<p>This chapter exists mostly to prevent one specific, extremely common mistake: <strong>spending weeks optimizing the layer that was never the problem.</strong></p>
+
+<div class="define">
+  <span class="term">Millisecond (ms)</span>
+  <p>One thousandth of a second. For calibration: a screen refreshing at 60 Hz draws a new frame every <strong>16.7 ms</strong>. Most people begin to notice input lag somewhere around 50–70 ms, and competitive players notice far less.</p>
+  <p>Our budget is roughly <strong>under 50 ms end to end</strong>. That's comfortably achievable — but only if we spend it in the right places.</p>
+</div>
+
+<h2>The full journey, timed</h2>
+
+<p>Follow one thumb press all the way to the screen. Every step costs something.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 320" role="img" aria-label="Stacked latency budget with your code as a negligible sliver">
+  <text class="s-lbl" x="30" y="26">one input, finger to pixel · roughly 34 ms on decent hardware</text>
+
+  <g>
+    <rect class="s-box-b" x="30" y="46" width="131" height="56" rx="4"/>
+    <rect class="s-box"   x="161" y="46" width="75" height="56"/>
+    <rect class="s-box-b" x="236" y="46" width="150" height="56"/>
+    <rect x="386" y="46" width="4" height="56" fill="var(--accent)"/>
+    <rect class="s-box"   x="390" y="46" width="19" height="56"/>
+    <rect class="s-box-g" x="409" y="46" width="261" height="56" rx="4"/>
+    <rect x="30" y="46" width="640" height="56" rx="4" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  </g>
+
+  <text class="s-t-sm" x="95"  y="70" text-anchor="middle">touchscreen</text>
+  <text class="s-t-sm" x="95"  y="88" text-anchor="middle">~7 ms</text>
+  <text class="s-t-sm" x="198" y="70" text-anchor="middle">send</text>
+  <text class="s-t-sm" x="198" y="88" text-anchor="middle">~4</text>
+  <text class="s-t-sm" x="311" y="70" text-anchor="middle">Wi-Fi</text>
+  <text class="s-t-sm" x="311" y="88" text-anchor="middle">~8 ms</text>
+  <text class="s-t-sm" x="539" y="70" text-anchor="middle">the game draws a frame</text>
+  <text class="s-t-sm" x="539" y="88" text-anchor="middle">~14 ms</text>
+
+  <path class="s-arr-a" d="M388 112 V158 H300" marker-end="url(#m1)"/>
+  <text class="s-em" x="295" y="154" text-anchor="end">all of your code: ~0.2 ms</text>
+  <text class="s-t-sm" x="295" y="172" text-anchor="end">unpack 20 bytes, call one function</text>
+  <text class="s-t-sm" x="295" y="188" text-anchor="end">six tenths of one percent of the total</text>
+
+  <g transform="translate(30,222)">
+    <rect class="s-box-b" x="0" y="0" width="14" height="14" rx="3"/>
+    <text class="s-t-sm" x="22" y="12">hardware and network — the real variable, and partly outside your control</text>
+    <rect class="s-box-g" x="0" y="24" width="14" height="14" rx="3"/>
+    <text class="s-t-sm" x="22" y="36">the game's own frame timing — entirely outside your control</text>
+    <rect x="0" y="48" width="14" height="14" rx="3" fill="var(--accent)"/>
+    <text class="s-t-sm" x="22" y="60">your program, in any language you could plausibly choose</text>
+    <rect class="s-box" x="0" y="72" width="14" height="14" rx="3"/>
+    <text class="s-t-sm" x="22" y="84">waiting — for the next send tick, and for the kernel</text>
+  </g>
+
+  <defs><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+<figcaption>Approximate ranges for typical consumer hardware — shown for <b>proportion</b>, not as measurements of any particular build. Your own numbers will differ; the relative sizes won't.</figcaption>
+</figure>
+
+<h2>The uncomfortable conclusion</h2>
+
+<p>Look at that orange sliver. Four pixels out of six hundred and forty.</p>
+
+<p>Deserializing twenty bytes and calling one function is genuinely a matter of microseconds — millionths of a second — in any language invented in the last forty years. A hand-tuned C server and a garbage-collected C# server produce input lag that differs by an amount no human can perceive, and that most instruments would struggle to separate from ordinary Wi-Fi jitter.</p>
+
+<div class="box warn">
+  <span class="lb">The mistake this chapter prevents</span>
+  <p>The reasoning goes: <em>"gamepad → low latency matters → I must write this in a systems language."</em> It sounds rigorous. It optimizes the one layer that was never the bottleneck, while the actual costs sit untouched in the network and the touchscreen.</p>
+  <p>This isn't hypothetical. In Chapter 12 we'll look at a real project whose server was rewritten across <strong>four different languages</strong> — while the layer that genuinely determined its quality stayed broken the whole time.</p>
+</div>
+
+<h2>What to actually spend effort on</h2>
+
+<p>In descending order of how much difference it makes:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 300" role="img" aria-label="Ranked list of what actually affects latency">
+  <rect class="s-box-g" x="30" y="25" width="640" height="52" rx="8"/>
+  <text class="s-t" x="50" y="48">1 · Use 5 GHz Wi-Fi, and put the PC on Ethernet</text>
+  <text class="s-t-sm" x="50" y="67">The single biggest lever — and it's a line in your README, not code. 2.4 GHz in a busy area spikes past 50 ms.</text>
+
+  <rect class="s-box-g" x="30" y="85" width="640" height="52" rx="8"/>
+  <text class="s-t" x="50" y="108">2 · Send on a fixed timer, not when things change</text>
+  <text class="s-t-sm" x="50" y="127">Counterintuitive. Event-driven sending sounds efficient but arrives in bursts, which feels like jitter.</text>
+
+  <rect class="s-box-a" x="30" y="145" width="640" height="52" rx="8"/>
+  <text class="s-t" x="50" y="168">3 · Choose UDP over TCP</text>
+  <text class="s-t-sm" x="50" y="187">Worth a whole chapter. The obvious, safer-sounding choice is actively harmful here. That's next.</text>
+
+  <rect class="s-box" x="30" y="205" width="640" height="42" rx="8"/>
+  <text class="s-t" x="50" y="228">4 · Stop Android putting the Wi-Fi radio to sleep between packets</text>
+  <text class="s-t-sm" x="50" y="242" opacity="0">spacer</text>
+
+  <rect class="s-box" x="30" y="255" width="640" height="42" rx="8"/>
+  <text class="s-t" x="50" y="278">5 · Don't do anything obviously wasteful in the hot path</text>
+  <text class="s-t-sm" x="50" y="292" opacity="0">spacer</text>
+</svg>
+</div>
+</figure>
+
+<p>Note what's missing from that list: your language, your framework, and any clever micro-optimisation of the parsing code. Point 5 is a "don't be careless" bar — no writing to disk on every packet, no allocating memory in a 125-times-a-second loop — not a demand for a systems language.</p>
+
+<div class="analogy">
+  <span class="lb">Think of it this way</span>
+  <p>You're trying to shorten a two-hour journey made up of a 90-minute flight, a 25-minute taxi, and a 4-second walk to the front door.</p>
+  <p>Optimising your code is sprinting the last four seconds. You could double your speed and it would round to nothing. The flight is the network; the taxi is the game's frame rate.</p>
+</div>
+
+<h2>The one number you do choose: send rate</h2>
+
+<p>How often should the phone send its snapshot? This is a real decision with a real trade-off, and it's the one piece of the budget genuinely in your hands.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 220" role="img" aria-label="Trade-off between send rate, latency and cost">
+  <line x1="60" y1="150" x2="640" y2="150" stroke="var(--line)" stroke-width="2"/>
+  <text class="s-lbl" x="60" y="178">slower ←</text>
+  <text class="s-lbl" x="640" y="178" text-anchor="end">→ faster</text>
+
+  <g>
+    <line x1="130" y1="145" x2="130" y2="155" stroke="var(--dim)" stroke-width="2"/>
+    <text class="s-t-sm" x="130" y="172" text-anchor="middle">30 Hz</text>
+    <rect class="s-box-r" x="85" y="95" width="90" height="42" rx="6"/>
+    <text class="s-t-sm" x="130" y="112" text-anchor="middle">33 ms gaps</text>
+    <text class="s-t-sm" x="130" y="128" text-anchor="middle">feels sluggish</text>
+  </g>
+  <g>
+    <line x1="330" y1="145" x2="330" y2="155" stroke="var(--accent)" stroke-width="3"/>
+    <text class="s-em" x="330" y="172" text-anchor="middle">125 Hz</text>
+    <rect class="s-box-g" x="270" y="88" width="120" height="49" rx="6"/>
+    <text class="s-t-sm" x="330" y="106" text-anchor="middle">8 ms gaps</text>
+    <text class="s-t-sm" x="330" y="122" text-anchor="middle">matches real pads</text>
+    <text class="s-t-sm" x="330" y="60" text-anchor="middle" fill="var(--accent)">the sweet spot</text>
+    <path class="s-arr-a" d="M330 68 V84" marker-end="url(#n1)"/>
+  </g>
+  <g>
+    <line x1="560" y1="145" x2="560" y2="155" stroke="var(--dim)" stroke-width="2"/>
+    <text class="s-t-sm" x="560" y="172" text-anchor="middle">1000 Hz</text>
+    <rect class="s-box-r" x="500" y="95" width="120" height="42" rx="6"/>
+    <text class="s-t-sm" x="560" y="112" text-anchor="middle">1 ms gaps</text>
+    <text class="s-t-sm" x="560" y="128" text-anchor="middle">battery drain, no gain</text>
+  </g>
+
+  <text class="s-t-sm" x="350" y="205" text-anchor="middle">Beyond ~125 Hz you're sending updates faster than the game reads them. The extra packets are simply discarded.</text>
+  <defs><marker id="n1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+<figcaption><b>125 Hz — one packet every 8 ms — is the standard answer</b>, and not by coincidence: it's the polling rate of a typical USB gamepad. You're matching the real thing.</figcaption>
+</figure>
+
+<details>
+<summary>Why fixed-rate beats event-driven, in detail<span class="tag">worth understanding</span></summary>
+<div class="dd">
+<p>Event-driven means: send a packet whenever the input changes. It seems obviously better — no wasted packets when nothing's happening.</p>
+<p>Two problems.</p>
+<p><strong>Bursts.</strong> Your thumb sliding across a stick generates touch events irregularly — sometimes several in a millisecond, sometimes a gap. Forwarding each one produces clumpy traffic. The receiving end sees a flurry, then silence, then a flurry. Even though the average latency is fine, the <em>variation</em> is what your hand notices, and it reads as the controller feeling loose or unpredictable.</p>
+<div class="define" style="margin-top:14px">
+  <span class="term">Jitter</span>
+  <p>Not how <em>long</em> the delay is, but how much it <em>varies</em>. A steady 30 ms delay feels far better than one bouncing randomly between 10 and 40 ms — your hand adapts to consistency but cannot adapt to randomness.</p>
+</div>
+<p><strong>Silence is ambiguous.</strong> With event-driven sending, "no packets" could mean nothing changed — or that the phone died. You'd need a separate heartbeat message to tell those apart. With fixed-rate sending, the stream <em>is</em> the heartbeat: silence unambiguously means something is wrong. That turns out to matter a lot in Chapter 11.</p>
+<p>And the cost of sending constantly? 20 bytes × 125 per second = 2.5 KB/s. A single low-quality photo is a hundred times that. It's free.</p>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Total budget is around <strong>34 ms</strong>, and it should stay under roughly 50 ms to feel right.</li>
+    <li>Your own code is about <strong>0.2 ms</strong> of that — under 1%. Language choice is essentially irrelevant to latency.</li>
+    <li>The real costs are the <strong>touchscreen</strong>, the <strong>network</strong>, and the <strong>game's frame rate</strong> — two of which you don't control at all.</li>
+    <li>The highest-leverage fix is <strong>5 GHz Wi-Fi</strong>, which is documentation rather than code.</li>
+    <li>Send at a <strong>fixed rate</strong>, not on events — steady beats bursty, and it doubles as a heartbeat.</li>
+    <li><strong>125 Hz</strong> (every 8 ms) is the right rate; it matches a real USB gamepad.</li>
+    <li><strong>Jitter</strong> — variation in delay — hurts more than a slightly higher constant delay.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch05.html"><span class="dir">← Previous</span><span class="ttl">5. Two devices, one conversation</span></a>
+  <a href="ch07.html" class="next"><span class="dir">Next →</span><span class="ttl">7. Choosing how to speak: UDP vs TCP</span></a>
+</div>
+
+</div>
+</body>
+</html>

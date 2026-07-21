@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glossary</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Appendix</a>
+    <span class="now">glossary</span>
+  </div>
+  <div class="progress"><div style="width:100%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Appendix</div>
+  <h1>Glossary</h1>
+  <p class="lede">Every term the book introduces, in one line each, with where it first appears.</p>
+</div>
+
+<h2>The stack</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Ch</th></tr></thead>
+<tbody>
+<tr><td><strong>API</strong></td><td>A menu of functions one program offers another. "Ask me this way, get an answer in this shape."</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>XInput</strong></td><td>Windows' API for Xbox-style controllers. Games call <code>XInputGetState</code>; it supports exactly four pads.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>DirectInput</strong></td><td>The older, more general Windows input API. Clumsier with triggers. Mostly superseded.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>HID</strong></td><td>The USB standard for input devices generally — the layer beneath both input APIs.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>Driver</strong></td><td>Software letting the OS talk to one kind of hardware. Runs privileged, in kernel mode.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>Kernel mode</strong></td><td>The OS's inner circle — unrestricted access to hardware. Where drivers live.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>User mode</strong></td><td>Where ordinary programs run, walled off from hardware. Where your server lives.</td><td><a href="ch02.html">2</a></td></tr>
+<tr><td><strong>Virtual bus driver</strong></td><td>A driver that reports devices on a bus that exists only in software. The core trick.</td><td><a href="ch03.html">3</a></td></tr>
+<tr><td><strong>ViGEmBus</strong></td><td>The specific virtual bus driver we use. Emulates Xbox 360 and DualShock 4. Retired Nov 2023, still works.</td><td><a href="ch03.html">3</a></td></tr>
+<tr><td><strong>ViGEmClient</strong></td><td>The user-mode library your program calls to talk to ViGEmBus. Not the same thing as the driver.</td><td><a href="ch03.html">3</a></td></tr>
+<tr><td><strong>ScpVBus</strong></td><td>ViGEmBus's predecessor, by partly the same author. What DroidJoy is built on.</td><td><a href="ch12.html">12</a></td></tr>
+<tr><td><strong>uinput</strong></td><td>Linux's built-in equivalent — lets user-mode programs create input devices with no custom driver.</td><td><a href="ch03.html">3</a></td></tr>
+<tr><td><strong>XINPUT_GAMEPAD</strong></td><td>The 12-byte structure holding a controller's entire state.</td><td><a href="ch04.html">4</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Input</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Ch</th></tr></thead>
+<tbody>
+<tr><td><strong>State vs events</strong></td><td>A complete snapshot ("A is down") versus a change notification ("A was pressed"). We send state. Everything follows from this.</td><td><a href="ch01.html">1</a></td></tr>
+<tr><td><strong>Digital</strong></td><td>Two values only — on or off. Buttons and keyboard keys.</td><td><a href="ch01.html">1</a></td></tr>
+<tr><td><strong>Analog</strong></td><td>A continuous range. Sticks and triggers. The reason fake keystrokes aren't good enough.</td><td><a href="ch01.html">1</a></td></tr>
+<tr><td><strong>Bitmask</strong></td><td>Many yes/no answers packed into one number, one bit each. All 16 buttons in a single 16-bit value.</td><td><a href="ch04.html">4</a></td></tr>
+<tr><td><strong>Pointer</strong></td><td>Android's name for one finger on screen. Has a stable <strong>ID</strong> and an unstable <strong>index</strong> — always use the ID.</td><td><a href="ch09.html">9</a></td></tr>
+<tr><td><strong>Deadzone</strong></td><td>A centre region reported as zero. Do it <em>radially</em>, or diagonals snap to the compass points.</td><td><a href="ch09.html">9</a></td></tr>
+<tr><td><strong>Floating origin</strong></td><td>The stick centres wherever your thumb lands, rather than at a fixed spot. Biggest feel win for the least code.</td><td><a href="ch09.html">9</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Networking</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Ch</th></tr></thead>
+<tbody>
+<tr><td><strong>Client / server</strong></td><td>The server waits at a known address; the client goes looking. Nothing to do with which is more powerful.</td><td><a href="ch01.html">1</a></td></tr>
+<tr><td><strong>IP address</strong></td><td>Identifies a machine. <code>192.168.…</code> addresses are private to your network and can't be reached from outside.</td><td><a href="ch05.html">5</a></td></tr>
+<tr><td><strong>Port</strong></td><td>Identifies which program on that machine gets the data. Building, then flat number.</td><td><a href="ch05.html">5</a></td></tr>
+<tr><td><strong>Socket</strong></td><td>Your program's phone line. Create, bind, send, receive.</td><td><a href="ch05.html">5</a></td></tr>
+<tr><td><strong>127.0.0.1</strong></td><td>"This same machine." Lets you test without any network involved.</td><td><a href="ch05.html">5</a></td></tr>
+<tr><td><strong>TCP</strong></td><td>Guarantees delivery and order — by stalling everything when data is lost. Wrong for realtime input.</td><td><a href="ch07.html">7</a></td></tr>
+<tr><td><strong>UDP</strong></td><td>Guarantees nothing, never waits. Right for us, because stale data is worthless anyway.</td><td><a href="ch07.html">7</a></td></tr>
+<tr><td><strong>Sequence number</strong></td><td>A per-packet counter so the receiver can discard anything older than what it has.</td><td><a href="ch07.html">7</a></td></tr>
+<tr><td><strong>Protocol</strong></td><td>An agreement about what the bytes mean. Mismatches fail silently, not loudly.</td><td><a href="ch08.html">8</a></td></tr>
+<tr><td><strong>Endianness</strong></td><td>Which byte of a multi-byte number comes first. Pick little-endian; Kotlin's <code>ByteBuffer</code> defaults the other way.</td><td><a href="ch08.html">8</a></td></tr>
+<tr><td><strong>Broadcast</strong></td><td><code>255.255.255.255</code> — "everyone on this network." UDP only, and can't leave your LAN.</td><td><a href="ch10.html">10</a></td></tr>
+<tr><td><strong>mDNS / DNS-SD</strong></td><td>The standards-based discovery mechanism printers and Chromecasts use. Tier 3.</td><td><a href="ch10.html">10</a></td></tr>
+<tr><td><strong>AP isolation</strong></td><td>A router setting stopping wireless devices from reaching each other. Defeats broadcast; you cannot work around it.</td><td><a href="ch10.html">10</a></td></tr>
+<tr><td><strong>adb reverse</strong></td><td>Tunnels a port over the USB cable. Lower and steadier latency than Wi-Fi. Your best chance to beat the competition.</td><td><a href="ch12.html">12</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Performance &amp; judgement</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Ch</th></tr></thead>
+<tbody>
+<tr><td><strong>Millisecond</strong></td><td>A thousandth of a second. A 60 Hz frame is 16.7 ms. Aim for under ~50 ms end to end.</td><td><a href="ch06.html">6</a></td></tr>
+<tr><td><strong>Latency</strong></td><td>How long from thumb to pixel. Roughly 34 ms typical — of which your code is about 0.2 ms.</td><td><a href="ch06.html">6</a></td></tr>
+<tr><td><strong>Jitter</strong></td><td>Variation in latency. Hurts more than a slightly higher constant delay, because hands adapt to consistency.</td><td><a href="ch06.html">6</a></td></tr>
+<tr><td><strong>Polling rate</strong></td><td>How often state is sent. 125 Hz (every 8 ms) matches a real USB gamepad.</td><td><a href="ch06.html">6</a></td></tr>
+<tr><td><strong>Threat model</strong></td><td>An honest account of who might attack, what they'd gain, and what it'd cost. Keeps security effort proportionate.</td><td><a href="ch10.html">10</a></td></tr>
+<tr><td><strong>Steam Input</strong></td><td>Steam's own remapping layer, sitting on top of the OS. Disable it before debugging anything input-related.</td><td><a href="ch11.html">11</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box good">
+  <span class="lb">The six ideas worth keeping</span>
+  <ol style="margin-bottom:0">
+    <li>Find the layer where the lie is cheapest.</li>
+    <li>Measure before optimising — effort follows visibility, not importance.</li>
+    <li>Send state, not events. Self-sufficient messages make loss a non-event.</li>
+    <li>Do the risky part first.</li>
+    <li>Trade-offs are priced, not free. Choose deliberately and accept the bill.</li>
+    <li>Know when to stop. A finished project beats an abandoned ambitious one.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch12.html"><span class="dir">← Previous</span><span class="ttl">12. Beyond the reference product</span></a>
+  <a href="index.html" class="next"><span class="dir">Back to →</span><span class="ttl">Contents</span></a>
+</div>
+
+</div>
+</body>
+</html>

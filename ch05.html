@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 5 — Two devices, one conversation</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part III</a>
+    <span class="now">05 / 12</span>
+  </div>
+  <div class="progress"><div style="width:41.6%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Five <span class="badge b-1">gentle</span></div>
+  <h1>Two devices, one conversation</h1>
+  <p class="lede">Networking from zero. What an IP address and a port really are, what a socket does, and how two programs on different machines find each other at all.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 4:</b> you have a working virtual pad driven by fake data. <b>Assumed knowledge:</b> none — this chapter starts from nothing.</div>
+
+<h2>The problem</h2>
+
+<p>Your server can move a virtual stick. Your phone knows where a thumb is. These two facts are currently in two different buildings, so to speak. This chapter is about the road between them.</p>
+
+<h2>Addresses: finding the right machine</h2>
+
+<p>Every device on your home network has a number that identifies it, handed out by your router when the device connects. That's an <strong>IP address</strong> — typically something like <code>192.168.1.47</code>.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 250" role="img" aria-label="A home network with a router assigning IP addresses">
+  <rect class="s-box-a" x="280" y="30" width="140" height="52" rx="9"/>
+  <text class="s-t" x="350" y="52" text-anchor="middle">Your router</text>
+  <text class="s-t-sm" x="350" y="70" text-anchor="middle">192.168.1.1</text>
+
+  <path class="s-arr" d="M310 86 L150 140"/>
+  <path class="s-arr" d="M350 86 V140"/>
+  <path class="s-arr" d="M390 86 L550 140"/>
+
+  <rect class="s-box-b" x="70" y="145" width="160" height="60" rx="8"/>
+  <text class="s-t" x="150" y="168" text-anchor="middle">Your phone</text>
+  <text class="s-t-mono" x="150" y="188" text-anchor="middle">192.168.1.47</text>
+
+  <rect class="s-box-g" x="270" y="145" width="160" height="60" rx="8"/>
+  <text class="s-t" x="350" y="168" text-anchor="middle">Your PC</text>
+  <text class="s-t-mono" x="350" y="188" text-anchor="middle">192.168.1.12</text>
+
+  <rect class="s-box" x="470" y="145" width="160" height="60" rx="8"/>
+  <text class="s-t" x="550" y="168" text-anchor="middle">A laptop</text>
+  <text class="s-t-mono" x="550" y="188" text-anchor="middle">192.168.1.88</text>
+
+  <text class="s-t-sm" x="350" y="235" text-anchor="middle">These are <tspan font-style="italic">private</tspan> addresses — meaningful only inside your home. The wider internet can't see them.</text>
+</svg>
+</div>
+</figure>
+
+<div class="define">
+  <span class="term">IP address</span>
+  <p>A number identifying one device on a network. Addresses starting <code>192.168.</code> or <code>10.</code> are <strong>private</strong> — they only mean anything within your own network, and every home in the world reuses the same ranges.</p>
+  <p>That's genuinely useful for us: it means our whole system is naturally confined to your home network. It also means <em>both devices must be on the same Wi-Fi</em>, which will be the single most common support question you ever get.</p>
+</div>
+
+<h2>Ports: finding the right program</h2>
+
+<p>An IP address gets you to the machine. But a PC runs dozens of programs at once — a browser, Discord, Steam, your server. When data arrives, which one gets it?</p>
+
+<p>That's what a <strong>port</strong> is: a numbered slot on a machine that a program can claim.</p>
+
+<div class="analogy">
+  <span class="lb">Think of it this way</span>
+  <p>The IP address is the street address of an apartment building. The port is the flat number.</p>
+  <p><em>"Deliver to 192.168.1.12, port 27500"</em> means the same kind of thing as <em>"Deliver to 14 Oak Street, flat 12."</em> Without the flat number the postman is standing in the lobby holding a parcel with nowhere to take it.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 230" role="img" aria-label="One machine, many ports, each claimed by a program">
+  <rect class="s-box" x="180" y="25" width="340" height="180" rx="10"/>
+  <text class="s-lbl" x="200" y="50">one PC · 192.168.1.12</text>
+
+  <rect class="s-box-b" x="205" y="62" width="290" height="30" rx="5"/>
+  <text class="s-t-mono" x="222" y="82">:443</text>
+  <text class="s-t-sm" x="300" y="82">your browser's connections</text>
+
+  <rect class="s-box-b" x="205" y="98" width="290" height="30" rx="5"/>
+  <text class="s-t-mono" x="222" y="118">:27015</text>
+  <text class="s-t-sm" x="300" y="118">Steam</text>
+
+  <rect class="s-box-a" x="205" y="134" width="290" height="30" rx="5"/>
+  <text class="s-t-mono" x="222" y="154">:27500</text>
+  <text class="s-t-sm" x="300" y="154">your gamepad server ←</text>
+
+  <rect class="s-box" x="205" y="170" width="290" height="24" rx="5"/>
+  <text class="s-t-sm" x="222" y="187">…65,000 more, mostly unused</text>
+
+  <path class="s-arr-a" d="M60 149 H200" marker-end="url(#k1)"/>
+  <text class="s-t-sm" x="65" y="140">incoming data</text>
+  <text class="s-t-sm" x="65" y="170">addressed to :27500</text>
+
+  <defs><marker id="k1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker></defs>
+</svg>
+</div>
+<figcaption>Ports run 0–65535. Numbers below 1024 are reserved for system services. Pick something high and unusual for your project — <b>27500</b> is a fine choice — and check nothing else grabbed it.</figcaption>
+</figure>
+
+<h2>Sockets: the thing you actually program</h2>
+
+<p>You never manipulate IP addresses and ports directly. You ask the operating system for a <strong>socket</strong>, and it hands you an object with two useful methods: send, and receive.</p>
+
+<div class="define">
+  <span class="term">Socket</span>
+  <p>A <strong>socket</strong> is your program's telephone. You ask the OS for one, tell it which port to claim, and then you can send data out and receive data in. All the genuinely hard networking — routing, Wi-Fi radio, error checking, retries — happens beneath it and is not your problem.</p>
+  <p>The API is essentially four operations: <em>create</em>, <em>bind</em> (claim a port), <em>send</em>, <em>receive</em>. That's most of network programming.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 240" role="img" aria-label="How the two programs use sockets differently">
+  <rect class="s-box-b" x="35" y="35" width="270" height="160" rx="10"/>
+  <text class="s-lbl" x="55" y="60">the client · your phone</text>
+  <text class="s-t-mono" x="55" y="88">socket = new Socket()</text>
+  <text class="s-t-sm" x="55" y="108">doesn't claim a port —</text>
+  <text class="s-t-sm" x="55" y="126">the OS assigns a spare one</text>
+  <text class="s-t-mono" x="55" y="156">socket.send(data, pcIP, 27500)</text>
+  <text class="s-t-sm" x="55" y="176">it has to know where to send</text>
+
+  <rect class="s-box-a" x="395" y="35" width="270" height="160" rx="10"/>
+  <text class="s-lbl" x="415" y="60">the server · your PC</text>
+  <text class="s-t-mono" x="415" y="88">socket = new Socket()</text>
+  <text class="s-t-mono" x="415" y="110">socket.bind(27500)</text>
+  <text class="s-t-sm" x="415" y="130">claims that port — this is the</text>
+  <text class="s-t-sm" x="415" y="148">difference that makes it a server</text>
+  <text class="s-t-mono" x="415" y="176">socket.receive()  → blocks, waits</text>
+
+  <text class="s-em" x="350" y="225" text-anchor="middle">The server binds a known port so it can be found. The client doesn't need to be findable.</text>
+</svg>
+</div>
+<figcaption>This is the concrete meaning of "client" and "server" from Chapter 1. The server waits at a fixed, publicised address. The client goes looking.</figcaption>
+</figure>
+
+<h2>Testing without a phone</h2>
+
+<p>Here's a trick that will save you enormous frustration. You now have two unfinished halves. If you build both and it doesn't work, the bug could be anywhere and you'll be debugging Android and Windows simultaneously.</p>
+
+<p>So don't. Write a throwaway script that pretends to be a phone.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 190" role="img" aria-label="Substituting a test script for the phone">
+  <rect class="s-box" x="35" y="30" width="180" height="56" rx="8" opacity="0.45"/>
+  <text class="s-t-sm" x="125" y="63" text-anchor="middle">phone app (doesn't exist yet)</text>
+
+  <rect class="s-box-g" x="35" y="104" width="180" height="56" rx="8"/>
+  <text class="s-t" x="125" y="128" text-anchor="middle">test script</text>
+  <text class="s-t-sm" x="125" y="147" text-anchor="middle">10 lines of Python</text>
+
+  <path class="s-arr-g" d="M223 132 H320" marker-end="url(#l1)"/>
+  <text class="s-t-sm" x="271" y="123" text-anchor="middle">fake packets</text>
+
+  <rect class="s-box-a" x="327" y="72" width="150" height="56" rx="8"/>
+  <text class="s-t" x="402" y="105" text-anchor="middle">your server</text>
+
+  <path class="s-arr-a" d="M485 100 H570" marker-end="url(#l2)"/>
+  <rect class="s-box-b" x="577" y="72" width="95" height="56" rx="8"/>
+  <text class="s-t-sm" x="624" y="98" text-anchor="middle">virtual</text>
+  <text class="s-t-sm" x="624" y="115" text-anchor="middle">pad</text>
+
+  <defs>
+    <marker id="l1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--green)"/></marker>
+    <marker id="l2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption><b>Now your entire server is testable without Android Studio ever being opened.</b> Keep this script permanently — every time you change the server later, run it and confirm the stick still moves.</figcaption>
+</figure>
+
+<div class="milestone">
+  <span class="lb">Milestone 2 · the server listens</span>
+  <h4>Goal: a Python script on your PC drives the virtual pad.</h4>
+  <ol>
+    <li>Add a socket to your Chapter 4 server: bind port 27500, loop on receive.</li>
+    <li>For now, read two numbers out of each packet and feed them to <code>SetAxisValue</code>. The real packet format is Chapter 8 — anything works today.</li>
+    <li>Run the Python script below in another window.</li>
+    <li><code>joy.cpl</code> — the stick sweeps, driven across a network socket.</li>
+  </ol>
+</div>
+
+<pre><code># fake_phone.py — pretends to be the client
+import socket, struct, math, time
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+angle = 0.0
+
+while True:
+    x = int(math.cos(angle) * 32000)
+    y = int(math.sin(angle) * 32000)
+    packet = struct.pack('&lt;hh', x, y)          # two 16-bit numbers
+    sock.sendto(packet, ('127.0.0.1', 27500))
+    angle += 0.05
+    time.sleep(0.008)                          # 125 times a second</code></pre>
+
+<div class="box info">
+  <span class="lb">127.0.0.1</span>
+  <p>That address means "this same machine." It lets the script and the server talk without any network involved at all — useful because it removes Wi-Fi from the equation while you're getting the basics right.</p>
+  <p>When you later test from a real phone, swap it for your PC's actual address (find it with <code>ipconfig</code>).</p>
+</div>
+
+<details>
+<summary>Firewalls, and why your first real phone test will fail<span class="tag">expect this</span></summary>
+<div class="dd">
+<p>The moment you move from <code>127.0.0.1</code> to a real phone over Wi-Fi, Windows Firewall will very likely block it silently. This catches everyone.</p>
+<p>Windows usually shows a permission prompt the first time your program binds a port — click <strong>Allow</strong>, and make sure <em>Private networks</em> is ticked. If you dismissed it, find your app under Windows Defender Firewall → "Allow an app through firewall."</p>
+<p>Two related classics worth knowing before they cost you an evening:</p>
+<ul>
+  <li><strong>Your PC is on a different network than you think.</strong> Ethernet on one subnet, phone on a guest Wi-Fi. They can't reach each other.</li>
+  <li><strong>AP isolation.</strong> Some routers — especially guest networks — deliberately prevent devices from talking to each other at all. Nothing you write can work around it; you'd need to change the network.</li>
+</ul>
+</div>
+</details>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>An <strong>IP address</strong> identifies a machine. Home addresses (<code>192.168.…</code>) are private to your network — both devices must be on the same Wi-Fi.</li>
+    <li>A <strong>port</strong> identifies which program on that machine gets the data. Building, then flat number.</li>
+    <li>A <strong>socket</strong> is your program's phone line: create, bind, send, receive.</li>
+    <li>The server <strong>binds</strong> a fixed known port so it can be found. The client doesn't need to.</li>
+    <li>Fake the phone with a short script so the server is debuggable on its own — and keep that script forever as a regression test.</li>
+    <li><code>127.0.0.1</code> means "this machine," which removes the network from the picture while you get things working.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch04.html"><span class="dir">← Previous</span><span class="ttl">4. Making a fake gamepad appear</span></a>
+  <a href="ch06.html" class="next"><span class="dir">Next →</span><span class="ttl">6. Where the milliseconds go</span></a>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ch 11 — Rumble, multiplayer, and not breaking</title>
+<link rel="stylesheet" href="book.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="index.html" class="home">Phone as Gamepad</a>
+    <span class="sep">/</span>
+    <a href="index.html">Part V</a>
+    <span class="now">11 / 12</span>
+  </div>
+  <div class="progress"><div style="width:91.6%"></div></div>
+</div>
+
+<div class="wrap">
+
+<div class="chead">
+  <div class="ch-n">Chapter Eleven <span class="badge b-4">advanced</span></div>
+  <h1>Rumble, multiplayer, and not breaking</h1>
+  <p class="lede">Three things that separate a working demo from something another person can actually use. The third one matters most, and almost nobody builds it first.</p>
+</div>
+
+<div class="prereq"><b>Builds on Ch 4</b> (the pad interface), <b>Ch 8</b> (message types), <b>Ch 9</b> (the send loop).</div>
+
+<h2>Part one — data flowing backwards</h2>
+
+<p>Everything so far has moved in one direction: thumb → phone → PC → game. Rumble reverses it. The game decides you should feel an explosion, and that has to travel all the way back to a motor in your hand.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 175" role="img" aria-label="The rumble return path from game to phone">
+  <rect class="s-box-g" x="25" y="42" width="120" height="56" rx="8"/>
+  <text class="s-t" x="85" y="66" text-anchor="middle">Game</text>
+  <text class="s-t-sm" x="85" y="85" text-anchor="middle">XInputSetState</text>
+
+  <rect class="s-box-a" x="185" y="42" width="120" height="56" rx="8"/>
+  <text class="s-t" x="245" y="66" text-anchor="middle">ViGEmBus</text>
+  <text class="s-t-sm" x="245" y="85" text-anchor="middle">raises a callback</text>
+
+  <rect class="s-box-a" x="345" y="42" width="130" height="56" rx="8"/>
+  <text class="s-t" x="410" y="66" text-anchor="middle">Your server</text>
+  <text class="s-t-sm" x="410" y="85" text-anchor="middle">OnFeedback</text>
+
+  <rect class="s-box-r" x="530" y="42" width="145" height="56" rx="8"/>
+  <text class="s-t" x="602" y="66" text-anchor="middle">Phone motor</text>
+  <text class="s-t-sm" x="602" y="85" text-anchor="middle">VibrationEffect</text>
+
+  <path class="s-arr-r" d="M148 70 H182" marker-end="url(#u1)"/>
+  <path class="s-arr-r" d="M308 70 H342" marker-end="url(#u1)"/>
+  <path class="s-arr-r" d="M478 70 H527" marker-end="url(#u1)"/>
+  <text class="s-t-sm" x="502" y="62" text-anchor="middle">UDP</text>
+
+  <text class="s-em" x="350" y="140" text-anchor="middle">A real pad has two motors — one heavy, one light. Your phone has one.</text>
+  <text class="s-t-sm" x="350" y="160" text-anchor="middle">Collapse them: large × 0.7 + small × 0.3, since the heavy motor carries most of the felt intensity.</text>
+
+  <defs><marker id="u1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--red)"/></marker></defs>
+</svg>
+</div>
+<figcaption>This is why the interface in Chapter 4 had an <code>OnFeedback</code> event on it. We knew this was coming.</figcaption>
+</figure>
+
+<pre><code>// Server — ViGEm tells you when the game wants vibration
+pad.FeedbackReceived += (sender, e) =&gt; {
+    // e.LargeMotor and e.SmallMotor are each 0..255
+    SendRumblePacket(clientEndpoint, e.LargeMotor, e.SmallMotor);
+};</code></pre>
+
+<pre><code>// Phone — one motor, so blend the two
+val amplitude = (large * 0.7f + small * 0.3f).toInt().coerceIn(0, 255)
+if (amplitude &gt; 0) {
+    vibrator.vibrate(VibrationEffect.createOneShot(60L, amplitude))
+} else {
+    vibrator.cancel()
+}</code></pre>
+
+<div class="box warn">
+  <span class="lb">Rate-limit this or regret it</span>
+  <p>Games update rumble <em>continuously</em> — sometimes every single frame. Forwarding each update as its own vibration call hammers the motor, drains the battery fast, and produces an undifferentiated mush rather than distinct feedback.</p>
+  <p>Throttle to about <strong>20 Hz</strong>, and only send when the value has meaningfully changed. Also check <code>vibrator.hasAmplitudeControl()</code> — on phones without it, any non-zero amplitude means full strength, so you'll want a threshold instead of a blend.</p>
+</div>
+
+<h2>Part two — four players</h2>
+
+<p>This one is nearly free, because we planned for it in Chapter 8 with the <code>pad</code> byte.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 245" role="img" aria-label="Four phones mapped to four virtual pads">
+  <rect class="s-box-b" x="30" y="30" width="120" height="38" rx="6"/>
+  <text class="s-t-sm" x="90" y="54" text-anchor="middle">phone .47</text>
+  <rect class="s-box-b" x="30" y="78" width="120" height="38" rx="6"/>
+  <text class="s-t-sm" x="90" y="102" text-anchor="middle">phone .53</text>
+  <rect class="s-box-b" x="30" y="126" width="120" height="38" rx="6"/>
+  <text class="s-t-sm" x="90" y="150" text-anchor="middle">phone .61</text>
+  <rect class="s-box-b" x="30" y="174" width="120" height="38" rx="6"/>
+  <text class="s-t-sm" x="90" y="198" text-anchor="middle">phone .88</text>
+
+  <path class="s-arr" d="M155 49 H245" marker-end="url(#v1)"/>
+  <path class="s-arr" d="M155 97 H245" marker-end="url(#v1)"/>
+  <path class="s-arr" d="M155 145 H245" marker-end="url(#v1)"/>
+  <path class="s-arr" d="M155 193 H245" marker-end="url(#v1)"/>
+
+  <rect class="s-box-a" x="250" y="30" width="185" height="182" rx="9"/>
+  <text class="s-lbl" x="270" y="56">server · one socket</text>
+  <text class="s-t-sm" x="270" y="84">A dictionary:</text>
+  <text class="s-t-mono" x="270" y="108">sender address</text>
+  <text class="s-t-mono" x="270" y="126">    → pad slot</text>
+  <text class="s-t-sm" x="270" y="154">Assigned on HELLO,</text>
+  <text class="s-t-sm" x="270" y="172">released on BYE</text>
+  <text class="s-t-sm" x="270" y="190">or on timeout.</text>
+
+  <path class="s-arr-a" d="M440 60 H520" marker-end="url(#v2)"/>
+  <path class="s-arr-a" d="M440 100 H520" marker-end="url(#v2)"/>
+  <path class="s-arr-a" d="M440 140 H520" marker-end="url(#v2)"/>
+  <path class="s-arr-a" d="M440 180 H520" marker-end="url(#v2)"/>
+
+  <rect class="s-box-g" x="525" y="42" width="145" height="34" rx="5"/>
+  <text class="s-t-sm" x="597" y="64" text-anchor="middle">virtual pad 0</text>
+  <rect class="s-box-g" x="525" y="82" width="145" height="34" rx="5"/>
+  <text class="s-t-sm" x="597" y="104" text-anchor="middle">virtual pad 1</text>
+  <rect class="s-box-g" x="525" y="122" width="145" height="34" rx="5"/>
+  <text class="s-t-sm" x="597" y="144" text-anchor="middle">virtual pad 2</text>
+  <rect class="s-box-g" x="525" y="162" width="145" height="34" rx="5"/>
+  <text class="s-t-sm" x="597" y="184" text-anchor="middle">virtual pad 3</text>
+
+  <text class="s-t-sm" x="350" y="235" text-anchor="middle">One socket handles all four. UDP has no connections, so a single port serves everyone.</text>
+  <defs>
+    <marker id="v1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--dim)"/></marker>
+    <marker id="v2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+  </defs>
+</svg>
+</div>
+<figcaption>Four is the limit because <b>XInput itself only supports four controllers</b> — that's why <code>XInputGetState</code> takes an index of 0–3. It's not a limitation of ViGEm or of your design. DroidJoy's "up to 4 clients" is the same ceiling.</figcaption>
+</figure>
+
+<div class="box info">
+  <span class="lb">Trust the sender, not the packet</span>
+  <p>The packet contains a <code>pad</code> byte, but don't obey it blindly — a buggy or malicious client could claim to be pad 0 and hijack player one. Assign the slot server-side on HELLO, keyed by sender address, and use the byte only as a cross-check.</p>
+  <p>General rule: <strong>the server decides, the client requests.</strong></p>
+</div>
+
+<h2>Part three — the bug that ruins everything</h2>
+
+<p>This is the most important section in the chapter, and it's about eight lines of code.</p>
+
+<p>Consider what happens when a phone stops sending. The battery dies. A call comes in. Someone walks out of Wi-Fi range. The app crashes.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 700 235" role="img" aria-label="Stuck input versus timeout and zeroing">
+  <rect class="s-box-r" x="30" y="28" width="310" height="185" rx="10"/>
+  <text class="s-lbl" x="50" y="54">without a timeout</text>
+  <text class="s-t-mono" x="50" y="82">LX = −32000, A = down</text>
+  <text class="s-t-sm" x="50" y="104" fill="var(--red)">…phone dies here…</text>
+  <text class="s-t-sm" x="50" y="132">The server's last known state is</text>
+  <text class="s-t-sm" x="50" y="150">"hard left, Ⓐ held." It has no</text>
+  <text class="s-t-sm" x="50" y="168">reason to think otherwise.</text>
+  <text class="s-t-sm" x="50" y="194" fill="var(--red)">Your character runs into a wall.</text>
+  <text class="s-t-sm" x="50" y="210" fill="var(--red)">Forever.</text>
+
+  <rect class="s-box-g" x="360" y="28" width="310" height="185" rx="10"/>
+  <text class="s-lbl" x="380" y="54">with a timeout</text>
+  <text class="s-t-mono" x="380" y="82">LX = −32000, A = down</text>
+  <text class="s-t-sm" x="380" y="104" fill="var(--red)">…phone dies here…</text>
+  <text class="s-t-sm" x="380" y="132">2 seconds of silence →</text>
+  <text class="s-t-mono" x="380" y="156">zero everything</text>
+  <text class="s-t-mono" x="380" y="176">unplug the pad</text>
+  <text class="s-t-sm" x="380" y="200" fill="var(--green)">Character stops. Game shows no controller.</text>
+</svg>
+</div>
+</figure>
+
+<div class="box good">
+  <span class="lb">Why this is nearly free for us</span>
+  <p>Because of Chapter 6's decision to send at a <strong>fixed rate</strong>, silence is unambiguous. A packet is due every 8 ms, so two seconds of nothing can only mean the client is gone.</p>
+  <p>Had we chosen event-driven sending, silence would be indistinguishable from "the player isn't touching anything," and we'd have needed a separate heartbeat message to tell them apart. Three chapters later, that decision is still paying.</p>
+</div>
+
+<pre><code>// Run this on a timer, once a second or so
+foreach (var client in clients.ToList())
+{
+    if (now - client.LastPacketTime &gt; TimeSpan.FromSeconds(2))
+    {
+        client.Pad.Submit(PadState.Zero);   // stop moving FIRST
+        client.Pad.Unplug();                // then remove the controller
+        clients.Remove(client);
+    }
+}</code></pre>
+
+<p>Note the order: zero the state <em>before</em> unplugging. Some games latch the last state they saw when a controller disappears, so unplugging while a stick is held can leave the input stuck anyway.</p>
+
+<h2>The rest of the sharp edges</h2>
+
+<details>
+<summary>Android will suspend your app, and two seconds is too long<span class="tag">robustness</span></summary>
+<div class="dd">
+<p>The timeout above is a safety net for crashes and dead batteries. But the common case — the player glances at a notification — is far more frequent and shouldn't take two seconds to resolve.</p>
+<p>Handle it explicitly on the phone side. In <code>onPause</code>, send a neutral state and then a BYE:</p>
+<pre><code>override fun onPause() {
+    super.onPause()
+    currentState.reset()          // all buttons up, sticks centred
+    sendImmediately()             // don't wait for the next tick
+    sendBye()
+    sendThread.pause()
+    wifiLock.release()
+}</code></pre>
+<p>Relying on the server's timeout for this is technically correct and practically awful. Two seconds of a stuck stick is very noticeable.</p>
+</div>
+</details>
+
+<details>
+<summary>Steam Input will waste one of your evenings<span class="tag">gotcha</span></summary>
+<div class="dd">
+<p>Steam has its own controller-remapping layer that sits on top of whatever the OS reports. When it's active, your virtual pad's input passes through Steam's configuration before reaching the game.</p>
+<p>The symptoms are maddening: a press registers twice, or maps to something you never sent, or works in one game and not another. You will naturally assume your packet code is wrong and go hunting there.</p>
+<p><strong>Before debugging anything input-related, turn Steam Input off for the test game.</strong> Right-click the game → Properties → Controller → "Disable Steam Input." If the problem vanishes, it was never yours.</p>
+</div>
+</details>
+
+<details>
+<summary>Windows timers are coarser than you'd expect<span class="tag">gotcha</span></summary>
+<div class="dd">
+<p>Windows' default timer granularity is about <strong>15.6 ms</strong> — worse than our entire 8 ms send interval. <code>Thread.Sleep(8)</code> may well sleep for 16.</p>
+<p>On the server this mostly doesn't matter, because you're blocked on <code>socket.Receive()</code>, which wakes on data arrival rather than on a timer. But anywhere you write a timed loop, be aware of it.</p>
+<p><code>timeBeginPeriod(1)</code> raises the resolution system-wide. Use it sparingly and reverse it when you're done — it increases power consumption across the whole machine, not just your process.</p>
+</div>
+</details>
+
+<details>
+<summary>This app is a battery furnace<span class="tag">ux</span></summary>
+<div class="dd">
+<p>Screen at full brightness, a Wi-Fi lock preventing the radio from sleeping, a 125 Hz loop, and a vibration motor. Expect heavy drain and tell users so up front — it's much better than them discovering it.</p>
+<p>You can drop the send rate when nothing is changing, but keep a floor of about <strong>30 Hz</strong> so the timeout logic never misfires during a quiet moment. A stuck-input bug caused by your own battery optimisation would be a particularly annoying way to learn this lesson.</p>
+</div>
+</details>
+
+<div class="milestone">
+  <span class="lb">Milestone 4 · someone else can use it</span>
+  <h4>The bar: hand your phone to a friend and say nothing.</h4>
+  <ul>
+    <li>Discovery works, or the manual fallback is obvious</li>
+    <li>Disconnection is handled — no stuck inputs, ever</li>
+    <li>Missing ViGEmBus produces a helpful message and a link, not a crash</li>
+    <li>A tray icon showing who's connected</li>
+    <li>Rumble, if you've got it</li>
+  </ul>
+</div>
+
+<div class="recap">
+  <span class="lb">What you now know</span>
+  <ol>
+    <li>Rumble travels <strong>backwards</strong> through the entire stack, arriving via ViGEm's feedback callback.</li>
+    <li>A real pad's two motors collapse into the phone's one — weight the large motor higher.</li>
+    <li><strong>Rate-limit rumble to ~20 Hz</strong> or you'll get battery drain and mush.</li>
+    <li><strong>Four pads maximum</strong> — that's XInput's own limit, not your design's.</li>
+    <li>One UDP socket serves all clients; map sender address → pad slot. <strong>The server assigns slots, the client requests them.</strong></li>
+    <li>The most important robustness rule: <strong>on silence, zero the state and unplug</strong> — and zero <em>before</em> unplugging.</li>
+    <li>Fixed-rate sending is what makes silence detectable at all. That Chapter 6 decision is still earning.</li>
+    <li>Handle <code>onPause</code> explicitly rather than waiting for the timeout.</li>
+    <li>Disable Steam Input before debugging input problems.</li>
+  </ol>
+</div>
+
+<div class="chnav">
+  <a href="ch10.html"><span class="dir">← Previous</span><span class="ttl">10. Finding each other</span></a>
+  <a href="ch12.html" class="next"><span class="dir">Next →</span><span class="ttl">12. Beyond the reference product</span></a>
+</div>
+
+</div>
+</body>
+</html>
