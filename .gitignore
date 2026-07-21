@@ -1,0 +1,43 @@
+# ── private working notes ────────────────────────────────────
+CLAUDE.md
+
+# ── C# / .NET ────────────────────────────────────────────────
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userprefs
+.vs/
+publish/
+*.nupkg
+
+# ── Android / Gradle ─────────────────────────────────────────
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+captures/
+.cxx/
+
+# ── JetBrains / Android Studio ───────────────────────────────
+.idea/
+*.iml
+
+# ── Python (tools/) ──────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── editors ──────────────────────────────────────────────────
+.vscode/
+
+# ── OS cruft ─────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
