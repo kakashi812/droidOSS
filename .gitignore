@@ -12,6 +12,7 @@ obj/
 *.userprefs
 .vs/
 publish/
+dist/
 *.nupkg
 
 

@@ -1,3 +1,7 @@
+// Must be a real import: inside the Kotlin DSL, a bare `java.util.Properties`
+// resolves `java` to Gradle's own `java` extension rather than the package.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -18,9 +22,34 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Read from local.properties, which is gitignored. The keystore and its
+    // passwords must never reach the repository: anyone holding them can ship
+    // an update that installs over a real droidOSS install.
+    //
+    // Losing the keystore is equally unrecoverable -- Android identifies an app
+    // by its signature, so a replacement key means existing users must
+    // uninstall before they can update. Back it up somewhere that is not this
+    // machine.
+    val keystoreProperties = Properties().apply {
+        val file = rootProject.file("local.properties")
+        if (file.exists()) file.inputStream().use { load(it) }
+    }
+    val keystorePath = keystoreProperties.getProperty("storeFile")
+
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -28,6 +57,9 @@ android {
             optimization {
                 enable = false
             }
+            // Falls back to an unsigned release build when no keystore is
+            // configured, so a fresh clone still builds.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {
