@@ -50,13 +50,15 @@ import io.github.kakashi812.droidoss.transport.ConnectionState
 @Composable
 fun ConnectScreen(
     connectionState: ConnectionState,
+    initialHost: String,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var host by remember { mutableStateOf("192.168.29.173") }
+    var host by remember { mutableStateOf(initialHost) }
 
     val busy = connectionState is ConnectionState.Connecting
+    val valid = host.isNotBlank()
     val canEdit = connectionState is ConnectionState.Idle ||
         connectionState is ConnectionState.NoServer ||
         connectionState is ConnectionState.ServerFull
@@ -111,7 +113,7 @@ fun ConnectScreen(
 
         Button(
             onClick = { if (busy) onDisconnect() else onConnect(host.trim()) },
-            enabled = canEdit || busy,
+            enabled = busy || (canEdit && valid),
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
                 .fillMaxWidth()

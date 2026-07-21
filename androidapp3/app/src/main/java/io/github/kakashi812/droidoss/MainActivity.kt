@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     private var transport by mutableStateOf<UdpTransport?>(null)
     private var connectionState by mutableStateOf<ConnectionState>(ConnectionState.Idle)
 
+    private val settings by lazy { Settings(applicationContext) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         ConnectScreen(
                             connectionState = connectionState,
+                            initialHost = settings.host,
                             onConnect = ::connect,
                             onDisconnect = ::disconnect,
                             modifier = Modifier.padding(innerPadding),
@@ -115,6 +118,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(host: String) {
+        // Remembered on attempt rather than on success, so a typo that fails is
+        // still there to correct rather than having to be retyped from scratch.
+        settings.host = host
+
         val previous = transport
         transport = null
 
