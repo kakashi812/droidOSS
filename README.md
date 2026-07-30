@@ -76,30 +76,14 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 
 ---
 
-## What it's good at
+## Roadmap
 
-A touchscreen has no tactile stick registration and no trigger travel. That's physics rather than a bug, and it lands very unevenly:
-
-| | |
-|---|---|
-| **Platformers, 2D, emulation** | The sweet spot — a real D-pad matters here |
-| **Sports (FC26 etc.)** | Strong fit. Tested and comfortable |
-| **Racing** | Strong fit |
-| **Fighting games** | Decent; tight combos suffer |
-| **First-person shooters** | Permanent compromise — twin-stick aiming on glass is poor no matter how well it's built |
-
----
-
-## Current limitations
-
-Honest list, all being worked on:
-
-- **You type the PC's address by hand.** Automatic discovery isn't built yet.
-- **The server is a console window** — no tray icon, no settings.
-- **No rumble.** Vibration doesn't travel back to the phone yet.
-- **Triggers are on/off**, not gradual.
-- **The layout can't be customised.**
-- **Windows x64 only.** No ARM build.
+- [x] ~~**The layout can't be customised.**~~ — **Fixed in v0.1.1 (app):** move, resize and save your own controller layouts.
+- [ ] **Automatic discovery** — find the PC on the network instead of typing its address by hand.
+- [ ] **Tray-icon server** with settings, instead of a console window.
+- [ ] **Rumble** — vibration from the game travelling back to the phone.
+- [ ] **Analog triggers** — gradual travel instead of on/off.
+- [ ] **Windows on ARM** build (currently x64 only).
 
 ---
 
