@@ -1,8 +1,13 @@
 package io.github.kakashi812.droidoss.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,16 +17,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,31 +43,45 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.kakashi812.droidoss.BuildConfig
+import io.github.kakashi812.droidoss.layout.ControllerLayout
+import io.github.kakashi812.droidoss.layout.DEFAULT_ID
 import io.github.kakashi812.droidoss.transport.ConnectionState
 
+private const val REPO_URL = "https://github.com/kakashi812/droidOSS"
+
 /**
- * Everything before the pad: pick a server, connect, understand what went wrong.
+ * Everything before the pad: pick a server, connect, and manage layouts.
  *
- * Kept deliberately plain. This screen is seen for a few seconds at the start of
- * a session and never again, so its job is to be unambiguous rather than
- * decorative — and above all to explain a failure well enough that someone who
- * did not build it can fix it themselves.
+ * The layout gallery lets a user preview and arrange controllers *before*
+ * connecting — the pad and the editor both work with no server, so there is
+ * nothing to wait for. Kept scrollable because this now holds more than one
+ * screenful on a short phone in portrait.
  */
 @Composable
 fun ConnectScreen(
     connectionState: ConnectionState,
     initialHost: String,
+    layouts: List<ControllerLayout>,
+    activeId: String,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
+    onUse: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onView: (String) -> Unit,
+    onRename: (id: String, name: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var host by remember { mutableStateOf(initialHost) }
+    var renamingId by remember { mutableStateOf<String?>(null) }
 
     val busy = connectionState is ConnectionState.Connecting
     val valid = host.isNotBlank()
@@ -66,10 +92,11 @@ fun ConnectScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
+        Spacer(Modifier.height(32.dp))
         Text(
             text = "droidOSS",
             style = MaterialTheme.typography.displaySmall,
@@ -83,7 +110,7 @@ fun ConnectScreen(
             textAlign = TextAlign.Center,
         )
 
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(28.dp))
 
         OutlinedTextField(
             value = host,
@@ -109,7 +136,7 @@ fun ConnectScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(20.dp))
 
         Button(
             onClick = { if (busy) onDisconnect() else onConnect(host.trim()) },
@@ -132,11 +159,232 @@ fun ConnectScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
 
         StatusPanel(connectionState)
+
+        Spacer(Modifier.height(24.dp))
+
+        LayoutGallery(
+            layouts = layouts,
+            activeId = activeId,
+            onUse = onUse,
+            onEdit = onEdit,
+            onView = onView,
+            onRenameRequest = { renamingId = it },
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        Footer()
+
+        Spacer(Modifier.height(24.dp))
+    }
+
+    renamingId?.let { id ->
+        val current = layouts.firstOrNull { it.id == id }?.name.orEmpty()
+        RenameDialog(
+            current = current,
+            onDismiss = { renamingId = null },
+            onConfirm = { name ->
+                onRename(id, name)
+                renamingId = null
+            },
+        )
     }
 }
+
+/** The Layouts panel: Default + the custom slots, two to a row. */
+@Composable
+private fun LayoutGallery(
+    layouts: List<ControllerLayout>,
+    activeId: String,
+    onUse: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onView: (String) -> Unit,
+    onRenameRequest: (String) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Layouts",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Pick which layout to use/edit (long press on layout to rename it)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            layouts.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for (layout in pair) {
+                        LayoutCard(
+                            layout = layout,
+                            isActive = layout.id == activeId,
+                            onUse = { onUse(layout.id) },
+                            onEdit = { onEdit(layout.id) },
+                            onView = { onView(layout.id) },
+                            onRenameRequest = { onRenameRequest(layout.id) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    // Keep a lone card at half width rather than stretching it.
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LayoutCard(
+    layout: ControllerLayout,
+    isActive: Boolean,
+    onUse: () -> Unit,
+    onEdit: () -> Unit,
+    onView: () -> Unit,
+    onRenameRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isDefault = layout.id == DEFAULT_ID
+    val border = if (isActive) {
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+    } else {
+        Modifier
+    }
+
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .then(border)
+            // Long-press renames a custom slot. Default is not renamable, so its
+            // long-press does nothing rather than offering a rename it can't honour.
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { if (!isDefault) onRenameRequest() },
+            ),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = layout.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isActive) {
+                    Text(
+                        "In use",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isActive) {
+                    FilledTonalButton(
+                        onClick = {},
+                        enabled = false,
+                        contentPadding = SmallPadding,
+                        modifier = Modifier.weight(1f),
+                    ) { CardButtonLabel("Using") }
+                } else {
+                    Button(
+                        onClick = onUse,
+                        contentPadding = SmallPadding,
+                        modifier = Modifier.weight(1f),
+                    ) { CardButtonLabel("Use") }
+                }
+
+                OutlinedButton(
+                    onClick = if (isDefault) onView else onEdit,
+                    contentPadding = SmallPadding,
+                    modifier = Modifier.weight(1f),
+                ) { CardButtonLabel(if (isDefault) "View" else "Edit") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenameDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename layout") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                singleLine = true,
+                label = { Text("Name") },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name) },
+                enabled = name.isNotBlank(),
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun Footer() {
+    val uriHandler = LocalUriHandler.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "version ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "github.com/kakashi812/droidOSS",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { uriHandler.openUri(REPO_URL) }
+                .padding(4.dp),
+        )
+    }
+}
+
+/** Card buttons are half-card wide, so their labels must stay on one small line
+ *  rather than wrapping or clipping ("Using" was the tight one). */
+@Composable
+private fun CardButtonLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        maxLines = 1,
+        softWrap = false,
+    )
+}
+
+private val SmallPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
 
 /**
  * One line of state and, when something is wrong, what to do about it.

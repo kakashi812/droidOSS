@@ -25,11 +25,15 @@
 package io.github.kakashi812.droidoss.layout
 
 import io.github.kakashi812.droidoss.protocol.GamepadButton
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 /** Which physical stick a [StickElement] drives. */
+@Serializable
 enum class Stick { LEFT, RIGHT }
 
 /** Which trigger a [TriggerElement] drives. */
+@Serializable
 enum class Trigger { LEFT, RIGHT }
 
 /**
@@ -43,6 +47,7 @@ enum class Trigger { LEFT, RIGHT }
  * *centre* of the control. Never pixels — the same layout has to land correctly
  * on a 5" 720p phone and a 12" tablet.
  */
+@Serializable
 sealed interface ControlElement {
     val id: String
     val x: Float
@@ -59,6 +64,8 @@ sealed interface ControlElement {
 }
 
 /** An analog stick. [stick] is the field PadConnect is missing. */
+@Serializable
+@SerialName("stick")
 data class StickElement(
     override val id: String,
     override val x: Float,
@@ -76,6 +83,8 @@ data class StickElement(
  * this project's best use case and they are played with a D-pad; a stick feels
  * mushy for them and misses inputs a D-pad lands cleanly.
  */
+@Serializable
+@SerialName("dpad")
 data class DpadElement(
     override val id: String,
     override val x: Float,
@@ -89,6 +98,8 @@ data class DpadElement(
 ) : ControlElement
 
 /** Any button that maps to a single bit of the button mask. */
+@Serializable
+@SerialName("button")
 data class ButtonElement(
     override val id: String,
     override val x: Float,
@@ -108,6 +119,8 @@ data class ButtonElement(
  * a permanently part-pressed throttle. Real analog travel from slide distance is
  * a B5 job; until then, full-on beats wrong-on.
  */
+@Serializable
+@SerialName("trigger")
 data class TriggerElement(
     override val id: String,
     override val x: Float,
@@ -119,8 +132,31 @@ data class TriggerElement(
     val label: String,
 ) : ControlElement
 
-/** A complete pad. */
+/**
+ * Copy a control with any subset of its shared geometry fields changed.
+ *
+ * A sealed *interface* has no synthesized `copy()`, so the editor — which only
+ * ever changes position, size, opacity or enabled — would otherwise need this
+ * `when` inline at every call site.
+ */
+fun ControlElement.with(
+    x: Float = this.x,
+    y: Float = this.y,
+    size: Float = this.size,
+    opacity: Float = this.opacity,
+    enabled: Boolean = this.enabled,
+): ControlElement = when (this) {
+    is ButtonElement -> copy(x = x, y = y, size = size, opacity = opacity, enabled = enabled)
+    is TriggerElement -> copy(x = x, y = y, size = size, opacity = opacity, enabled = enabled)
+    is StickElement -> copy(x = x, y = y, size = size, opacity = opacity, enabled = enabled)
+    is DpadElement -> copy(x = x, y = y, size = size, opacity = opacity, enabled = enabled)
+}
+
+/** A complete pad. [id] is stable and identifies a slot ("default", "custom1"…);
+ *  [name] is the user-facing, renamable label. */
+@Serializable
 data class ControllerLayout(
+    val id: String,
     val name: String,
     val elements: List<ControlElement>,
 )
@@ -138,6 +174,7 @@ data class ControllerLayout(
  * reason this model exists in this shape.
  */
 fun defaultLayout(): ControllerLayout = ControllerLayout(
+    id = "default",
     name = "Default",
     elements = listOf(
         // ── top edge: index fingers ──────────────────────────────────────

@@ -15,11 +15,14 @@
  * Changed here: two sticks rather than one hardcoded to the left axis, a real
  * D-pad, radial deadzones, full-range triggers, and pointer release driven by
  * which ids are still present so a cancelled gesture cannot leave a control held.
+ *
+ * Drawing lives in PadDrawing.kt, shared with the layout editor.
  */
 
 package io.github.kakashi812.droidoss.ui
 
 import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,25 +30,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.foundation.Canvas
 import io.github.kakashi812.droidoss.layout.ButtonElement
-import io.github.kakashi812.droidoss.layout.ControlElement
 import io.github.kakashi812.droidoss.layout.ControllerLayout
 import io.github.kakashi812.droidoss.layout.DpadElement
 import io.github.kakashi812.droidoss.layout.Stick
@@ -57,16 +47,6 @@ import io.github.kakashi812.droidoss.protocol.PadState
 import io.github.kakashi812.droidoss.transport.UdpTransport
 import kotlin.math.roundToInt
 
-/** A control resolved to pixels for the current screen size. */
-private data class Placed(
-    val element: ControlElement,
-    val centre: Offset,
-    val radius: Float,
-) {
-    fun contains(point: Offset): Boolean =
-        (point - centre).getDistanceSquared() <= radius * radius
-}
-
 /**
  * The gamepad.
  *
@@ -77,7 +57,9 @@ private data class Placed(
  *
  * Drawing and sending are decoupled: this writes into the transport's shared
  * state, and the transport's own thread reads it at a fixed 125 Hz whatever the
- * frame rate happens to be doing.
+ * frame rate happens to be doing. A **null** transport is legal — the pad then
+ * draws and responds to touch but sends nowhere, which is exactly what the "View"
+ * preview on the home screen uses.
  */
 @Composable
 fun PadScreen(
@@ -103,42 +85,9 @@ fun PadScreen(
 
         // Resolved once per size change, not per frame or per touch event.
         val placed = remember(layout, widthPx, heightPx) {
-            layout.elements.map { element ->
-                Placed(
-                    element = element,
-                    centre = Offset(element.x * widthPx, element.y * heightPx),
-                    radius = element.size * widthPx / 2f,
-                )
-            }
+            layout.elements.place(widthPx, heightPx)
         }
-
-        // Text is measured once per layout change and cached. Measuring inside
-        // the draw lambda would allocate on every frame, which is the same
-        // discipline the 125 Hz send path follows.
-        val textMeasurer = rememberTextMeasurer()
-        val density = LocalDensity.current
-        val labels = remember(placed, textMeasurer, density) {
-            buildMap {
-                for (p in placed) {
-                    val text = when (val e = p.element) {
-                        is ButtonElement -> e.label
-                        is TriggerElement -> e.label
-                        else -> null
-                    } ?: continue
-
-                    put(
-                        p.element.id,
-                        textMeasurer.measure(
-                            text = AnnotatedString(text),
-                            style = TextStyle(
-                                fontSize = with(density) { (p.radius * LABEL_FRACTION).toSp() },
-                                fontWeight = FontWeight.Medium,
-                            ),
-                        ),
-                    )
-                }
-            }
-        }
+        val labels = rememberControlLabels(placed)
 
         Canvas(
             modifier = Modifier
@@ -366,155 +315,8 @@ private fun applyDpad(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Drawing
-// ─────────────────────────────────────────────────────────────────────────────
-
-private fun DrawScope.drawControl(
-    placed: Placed,
-    pressed: Map<String, Boolean>,
-    knobs: Map<String, Offset>,
-    labels: Map<String, TextLayoutResult>,
-) {
-    val element = placed.element
-    val isDown = pressed[element.id] == true
-    val alpha = element.opacity * (if (element.enabled) 1f else 0.3f)
-
-    when (element) {
-        is StickElement -> {
-            drawCircle(
-                color = Color.White.copy(alpha = alpha * 0.10f),
-                radius = placed.radius,
-                center = placed.centre,
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = alpha * 0.35f),
-                radius = placed.radius,
-                center = placed.centre,
-                style = Stroke(width = STROKE_WIDTH),
-            )
-
-            // The knob tracking the thumb is most of what replaces the missing
-            // tactile feel -- you can see exactly what the stick is reporting.
-            val knob = knobs[element.id] ?: Offset.Zero
-            drawCircle(
-                color = Color.White.copy(alpha = alpha * 0.70f),
-                radius = placed.radius * KNOB_FRACTION,
-                center = placed.centre + knob,
-            )
-        }
-
-        // A cross, not a circle with a knob. Drawing it like a stick made it
-        // read as a third stick, which is exactly what it must never look like:
-        // a D-pad promises four discrete directions and a stick promises smooth
-        // travel, and the shape is the only thing telling you which you have.
-        is DpadElement -> drawDpad(placed, element, knobs[element.id] ?: Offset.Zero, alpha)
-
-        is ButtonElement, is TriggerElement -> {
-            drawCircle(
-                color = Color.White.copy(alpha = if (isDown) alpha * 0.80f else alpha * 0.15f),
-                radius = placed.radius,
-                center = placed.centre,
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = alpha * 0.5f),
-                radius = placed.radius,
-                center = placed.centre,
-                style = Stroke(width = STROKE_WIDTH),
-            )
-        }
-    }
-
-    // Labels last, so they sit on top of the pressed fill.
-    labels[element.id]?.let { measured ->
-        drawText(
-            textLayoutResult = measured,
-            color = Color.White.copy(alpha = alpha * if (isDown) 0.95f else 0.7f),
-            topLeft = placed.centre - Offset(
-                measured.size.width / 2f,
-                measured.size.height / 2f,
-            ),
-        )
-    }
-}
-
-/**
- * A four-armed cross whose arms light up individually.
- *
- * Each arm is highlighted from the knob offset using the same threshold the
- * touch handler uses, so what you see is exactly what is being sent — including
- * a diagonal lighting two arms at once.
- */
-private fun DrawScope.drawDpad(
-    placed: Placed,
-    element: DpadElement,
-    knob: Offset,
-    alpha: Float,
-) {
-    val r = placed.radius
-    val arm = r * 0.62f          // length of each arm from centre
-    val thickness = r * 0.52f
-    val threshold = r * element.deadzone
-
-    val up = knob.y < -threshold
-    val down = knob.y > threshold
-    val left = knob.x < -threshold
-    val right = knob.x > threshold
-
-    fun armColour(active: Boolean) =
-        Color.White.copy(alpha = alpha * if (active) 0.80f else 0.15f)
-
-    // Vertical and horizontal bars, drawn as two rounded rectangles crossing at
-    // the centre. Each half is filled separately so one direction can light
-    // without the other.
-    drawRoundRect(                                  // up
-        color = armColour(up),
-        topLeft = placed.centre + Offset(-thickness / 2f, -arm),
-        size = Size(thickness, arm),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-    )
-    drawRoundRect(                                  // down
-        color = armColour(down),
-        topLeft = placed.centre + Offset(-thickness / 2f, 0f),
-        size = Size(thickness, arm),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-    )
-    drawRoundRect(                                  // left
-        color = armColour(left),
-        topLeft = placed.centre + Offset(-arm, -thickness / 2f),
-        size = Size(arm, thickness),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-    )
-    drawRoundRect(                                  // right
-        color = armColour(right),
-        topLeft = placed.centre + Offset(0f, -thickness / 2f),
-        size = Size(arm, thickness),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-    )
-
-    // Outline of the whole cross, so it reads as one control at rest.
-    drawRoundRect(
-        color = Color.White.copy(alpha = alpha * 0.30f),
-        topLeft = placed.centre + Offset(-thickness / 2f, -arm),
-        size = Size(thickness, arm * 2f),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-        style = Stroke(width = STROKE_WIDTH),
-    )
-    drawRoundRect(
-        color = Color.White.copy(alpha = alpha * 0.30f),
-        topLeft = placed.centre + Offset(-arm, -thickness / 2f),
-        size = Size(arm * 2f, thickness),
-        cornerRadius = CornerRadius(CORNER, CORNER),
-        style = Stroke(width = STROKE_WIDTH),
-    )
-}
-
 private const val FULL_TRAVEL = 255
 private const val STICK_DEADZONE = 0.12f
-private const val KNOB_FRACTION = 0.42f
-private const val STROKE_WIDTH = 3f
-private const val CORNER = 8f
-private const val LABEL_FRACTION = 0.62f
 private const val MIN_AXIS = -32768
 private const val MAX_AXIS = 32767
 

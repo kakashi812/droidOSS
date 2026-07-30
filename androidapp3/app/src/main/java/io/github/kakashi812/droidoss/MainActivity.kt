@@ -14,17 +14,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import io.github.kakashi812.droidoss.layout.ControllerLayout
+import io.github.kakashi812.droidoss.layout.LayoutStore
 import io.github.kakashi812.droidoss.layout.defaultLayout
 import io.github.kakashi812.droidoss.transport.ConnectionState
 import io.github.kakashi812.droidoss.transport.UdpTransport
 import io.github.kakashi812.droidoss.ui.ConnectScreen
+import io.github.kakashi812.droidoss.ui.LayoutEditorScreen
 import io.github.kakashi812.droidoss.ui.PadScreen
 import io.github.kakashi812.droidoss.ui.theme.DroidOSSTheme
 import kotlinx.coroutines.Dispatchers
@@ -40,36 +42,92 @@ class MainActivity : ComponentActivity() {
     private var transport by mutableStateOf<UdpTransport?>(null)
     private var connectionState by mutableStateOf<ConnectionState>(ConnectionState.Idle)
 
+    // Which full-screen layout screen, if any, is open over the gallery. At most
+    // one is ever set.
+    private var editingId by mutableStateOf<String?>(null)
+    private var viewingId by mutableStateOf<String?>(null)
+
+    // The gallery's data, mirrored into Compose state so a Use / rename / save
+    // repaints the cards. `store` is the source of truth on disk.
+    private val store by lazy { LayoutStore(applicationContext) }
+    private var layouts by mutableStateOf<List<ControllerLayout>>(emptyList())
+    private var activeId by mutableStateOf("default")
+
     private val settings by lazy { Settings(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        layouts = store.layouts()
+        activeId = store.activeId
+
         setContent {
             DroidOSSTheme {
-                // The pad takes over the moment we are connected; before that
-                // there is nothing to send to, so the setup screen is the only
-                // useful thing to show.
-                if (connectionState is ConnectionState.Connected) {
-                    KeepAwakeLandscape()
-                    // Back leaves the pad rather than the app, so a misfire
-                    // during play costs a tap instead of the whole session.
-                    BackHandler { disconnect() }
-                    PadScreen(
-                        transport = transport,
-                        layout = remember { defaultLayout() },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                        ConnectScreen(
-                            connectionState = connectionState,
-                            initialHost = settings.host,
-                            onConnect = ::connect,
-                            onDisconnect = ::disconnect,
-                            modifier = Modifier.padding(innerPadding),
+                val activeLayout = layouts.firstOrNull { it.id == activeId } ?: defaultLayout()
+
+                when {
+                    // Live play takes precedence over everything.
+                    connectionState is ConnectionState.Connected -> {
+                        KeepAwakeLandscape()
+                        // Back leaves the pad rather than the app, so a misfire
+                        // during play costs a tap instead of the whole session.
+                        BackHandler { disconnect() }
+                        PadScreen(
+                            transport = transport,
+                            layout = activeLayout,
+                            modifier = Modifier.fillMaxSize(),
                         )
+                    }
+
+                    // Arranging a custom layout. Same landscape framing as the pad,
+                    // because you must arrange at the size you will play at.
+                    editingId != null -> {
+                        val id = editingId!!
+                        val layout = layouts.firstOrNull { it.id == id } ?: defaultLayout()
+                        KeepAwakeLandscape()
+                        BackHandler { editingId = null }
+                        LayoutEditorScreen(
+                            initial = layout,
+                            onSave = { edited ->
+                                store.save(edited)
+                                layouts = store.layouts()
+                                editingId = null
+                            },
+                            onCancel = { editingId = null },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    // Interactive read-only preview: the real pad, sending nowhere.
+                    viewingId != null -> {
+                        val id = viewingId!!
+                        val layout = layouts.firstOrNull { it.id == id } ?: defaultLayout()
+                        KeepAwakeLandscape()
+                        BackHandler { viewingId = null }
+                        PadScreen(
+                            transport = null,
+                            layout = layout,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    else -> {
+                        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                            ConnectScreen(
+                                connectionState = connectionState,
+                                initialHost = settings.host,
+                                layouts = layouts,
+                                activeId = activeId,
+                                onConnect = ::connect,
+                                onDisconnect = ::disconnect,
+                                onUse = ::useLayout,
+                                onEdit = { editingId = it },
+                                onView = { viewingId = it },
+                                onRename = ::renameLayout,
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
                     }
                 }
             }
@@ -77,12 +135,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Landscape, immersive, and awake, for as long as the pad is on screen.
+     * Landscape, immersive, and awake, for as long as a full-screen pad (live,
+     * editing, or previewing) is on screen.
      *
-     * All three are reverted on the way out, so the setup screen behaves like a
-     * normal app. Keeping the screen on matters more than it sounds: a gamepad
-     * receives no touches during a cutscene, and the display timing out
-     * mid-session would be baffling.
+     * All three are reverted on the way out, so the gallery behaves like a normal
+     * app. Keeping the screen on matters more than it sounds: a gamepad receives
+     * no touches during a cutscene, and arranging a control takes a moment of
+     * looking without touching — the display timing out mid-way would be baffling.
      */
     @Composable
     private fun KeepAwakeLandscape() {
@@ -110,11 +169,21 @@ class MainActivity : ComponentActivity() {
      * Waiting out the server's two-second timeout because someone glanced at a
      * notification is technically correct and practically awful — two seconds of
      * a character running into a wall. This is a non-negotiable of the design,
-     * not a nicety.
+     * not a nicety. Harmless while editing or previewing (there is no transport).
      */
     override fun onPause() {
         super.onPause()
         disconnect()
+    }
+
+    private fun useLayout(id: String) {
+        store.setActive(id)
+        activeId = store.activeId
+    }
+
+    private fun renameLayout(id: String, name: String) {
+        store.rename(id, name)
+        layouts = store.layouts()
     }
 
     private fun connect(host: String) {
