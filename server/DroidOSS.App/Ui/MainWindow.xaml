@@ -299,6 +299,7 @@
             <!-- Footer -->
             <DockPanel Grid.Row="4" Margin="10,12,10,0">
                 <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="12">
+                    <Run Text="{Binding Version, Mode=OneTime}" Foreground="{DynamicResource TextMuted}" /><Run Text="  ·  " Foreground="{DynamicResource TextMuted}" />
                     <Hyperlink NavigateUri="https://github.com/kakashi812/droidOSS" RequestNavigate="Link_RequestNavigate"
                                Foreground="{DynamicResource Accent}">github.com/kakashi812/droidOSS</Hyperlink>
                 </TextBlock>
