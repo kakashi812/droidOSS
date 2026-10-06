@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What LayoutTransfer may hand to other apps: the one layout file being
+     shared, and nothing else of the app's storage. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

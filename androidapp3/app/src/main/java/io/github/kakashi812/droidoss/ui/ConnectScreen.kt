@@ -25,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -54,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import io.github.kakashi812.droidoss.BuildConfig
 import io.github.kakashi812.droidoss.layout.ControllerLayout
 import io.github.kakashi812.droidoss.layout.DEFAULT_ID
+import io.github.kakashi812.droidoss.layout.MAX_CUSTOM
+import io.github.kakashi812.droidoss.layout.MAX_LAYOUTS
 import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
 import io.github.kakashi812.droidoss.transport.DiscoveredServer
@@ -79,14 +83,12 @@ fun ConnectScreen(
     activeId: String,
     onConnect: (host: String, port: Int) -> Unit,
     onDisconnect: () -> Unit,
-    onUse: (String) -> Unit,
-    onEdit: (String) -> Unit,
-    onView: (String) -> Unit,
-    onRename: (id: String, name: String) -> Unit,
+    layoutActions: LayoutActions,
     modifier: Modifier = Modifier,
 ) {
     var host by remember { mutableStateOf(initialHost) }
     var renamingId by remember { mutableStateOf<String?>(null) }
+    var deletingId by remember { mutableStateOf<String?>(null) }
 
     val busy = connectionState is ConnectionState.Connecting
     val valid = host.isNotBlank()
@@ -194,10 +196,9 @@ fun ConnectScreen(
         LayoutGallery(
             layouts = layouts,
             activeId = activeId,
-            onUse = onUse,
-            onEdit = onEdit,
-            onView = onView,
+            actions = layoutActions,
             onRenameRequest = { renamingId = it },
+            onDeleteRequest = { deletingId = it },
         )
 
         Spacer(Modifier.height(24.dp))
@@ -213,12 +214,38 @@ fun ConnectScreen(
             current = current,
             onDismiss = { renamingId = null },
             onConfirm = { name ->
-                onRename(id, name)
+                layoutActions.rename(id, name)
                 renamingId = null
             },
         )
     }
+
+    deletingId?.let { id ->
+        DeleteDialog(
+            name = layouts.firstOrNull { it.id == id }?.name.orEmpty(),
+            onConfirm = {
+                layoutActions.delete(id)
+                deletingId = null
+            },
+            onDismiss = { deletingId = null },
+        )
+    }
 }
+
+/** Everything the layout gallery can ask for, by layout id where one applies. */
+class LayoutActions(
+    val use: (String) -> Unit,
+    val edit: (String) -> Unit,
+    val view: (String) -> Unit,
+    val rename: (id: String, name: String) -> Unit,
+    val duplicate: (String) -> Unit,
+    val delete: (String) -> Unit,
+    val share: (String) -> Unit,
+    val saveToFile: (String) -> Unit,
+    val showQr: (String) -> Unit,
+    val importFile: () -> Unit,
+    val scanQr: () -> Unit,
+)
 
 /**
  * The servers that answered discovery, one tappable row each.
@@ -339,33 +366,66 @@ private fun ServerRow(
     }
 }
 
-/** The Layouts panel: Default + the custom slots, two to a row. */
+/**
+ * The Layouts panel: Default plus up to [MAX_CUSTOM] custom layouts, two to a
+ * row, with the ways to make, receive and pass layouts on above them.
+ */
 @Composable
 private fun LayoutGallery(
     layouts: List<ControllerLayout>,
     activeId: String,
-    onUse: (String) -> Unit,
-    onEdit: (String) -> Unit,
-    onView: (String) -> Unit,
+    actions: LayoutActions,
     onRenameRequest: (String) -> Unit,
+    onDeleteRequest: (String) -> Unit,
 ) {
+    val full = layouts.size >= MAX_LAYOUTS
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                "Layouts",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Layouts",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${layouts.size} of $MAX_LAYOUTS",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (full) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Text(
-                "Pick which layout to use/edit (long press on layout to rename it)",
+                "Pick which layout to use or edit. Tap ⋮ on a layout to rename, share, show its QR code or delete it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(12.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { actions.duplicate(DEFAULT_ID) },
+                    enabled = !full,
+                    contentPadding = SmallPadding,
+                    modifier = Modifier.weight(1f),
+                ) { CardButtonLabel("+ New") }
+                OutlinedButton(
+                    onClick = actions.importFile,
+                    contentPadding = SmallPadding,
+                    modifier = Modifier.weight(1f),
+                ) { CardButtonLabel("Import file") }
+                OutlinedButton(
+                    onClick = actions.scanQr,
+                    contentPadding = SmallPadding,
+                    modifier = Modifier.weight(1f),
+                ) { CardButtonLabel("Scan QR") }
+            }
+
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
             layouts.chunked(2).forEach { pair ->
@@ -374,10 +434,10 @@ private fun LayoutGallery(
                         LayoutCard(
                             layout = layout,
                             isActive = layout.id == activeId,
-                            onUse = { onUse(layout.id) },
-                            onEdit = { onEdit(layout.id) },
-                            onView = { onView(layout.id) },
+                            canDuplicate = !full,
+                            actions = actions,
                             onRenameRequest = { onRenameRequest(layout.id) },
+                            onDeleteRequest = { onDeleteRequest(layout.id) },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -385,6 +445,14 @@ private fun LayoutGallery(
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(12.dp))
+            }
+
+            if (layouts.size == 1) {
+                Text(
+                    "Tap + New to make a layout of your own, or import one someone shared.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -395,13 +463,14 @@ private fun LayoutGallery(
 private fun LayoutCard(
     layout: ControllerLayout,
     isActive: Boolean,
-    onUse: () -> Unit,
-    onEdit: () -> Unit,
-    onView: () -> Unit,
+    canDuplicate: Boolean,
+    actions: LayoutActions,
     onRenameRequest: () -> Unit,
+    onDeleteRequest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isDefault = layout.id == DEFAULT_ID
+    var menuOpen by remember { mutableStateOf(false) }
     val border = if (isActive) {
         Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
     } else {
@@ -412,36 +481,81 @@ private fun LayoutCard(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .then(border)
-            // Long-press renames a custom slot. Default is not renamable, so its
+            // Long-press renames a custom layout. Default is not renamable, so its
             // long-press does nothing rather than offering a rename it can't honour.
             .combinedClickable(
                 onClick = {},
                 onLongClick = { if (!isDefault) onRenameRequest() },
             ),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = layout.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (isActive) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "In use",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        text = layout.name,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    if (isActive) {
+                        Text(
+                            "In use",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Box {
+                    TextButton(
+                        onClick = { menuOpen = true },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Text("⋮", style = MaterialTheme.typography.titleLarge)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        // Default is the pristine baseline everyone already has:
+                        // it can be copied, but not renamed, shared or deleted.
+                        if (!isDefault) {
+                            MenuItem("Rename") {
+                                menuOpen = false
+                                onRenameRequest()
+                            }
+                        }
+                        MenuItem(if (isDefault) "Make a copy" else "Duplicate", enabled = canDuplicate) {
+                            menuOpen = false
+                            actions.duplicate(layout.id)
+                        }
+                        if (!isDefault) {
+                            MenuItem("Share…") {
+                                menuOpen = false
+                                actions.share(layout.id)
+                            }
+                            MenuItem("Save to file") {
+                                menuOpen = false
+                                actions.saveToFile(layout.id)
+                            }
+                            MenuItem("Show QR code") {
+                                menuOpen = false
+                                actions.showQr(layout.id)
+                            }
+                            MenuItem("Delete", destructive = true) {
+                                menuOpen = false
+                                onDeleteRequest()
+                            }
+                        }
+                    }
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(6.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(end = 8.dp),
+            ) {
                 if (isActive) {
                     FilledTonalButton(
                         onClick = {},
@@ -451,20 +565,39 @@ private fun LayoutCard(
                     ) { CardButtonLabel("Using") }
                 } else {
                     Button(
-                        onClick = onUse,
+                        onClick = { actions.use(layout.id) },
                         contentPadding = SmallPadding,
                         modifier = Modifier.weight(1f),
                     ) { CardButtonLabel("Use") }
                 }
 
                 OutlinedButton(
-                    onClick = if (isDefault) onView else onEdit,
+                    onClick = { if (isDefault) actions.view(layout.id) else actions.edit(layout.id) },
                     contentPadding = SmallPadding,
                     modifier = Modifier.weight(1f),
                 ) { CardButtonLabel(if (isDefault) "View" else "Edit") }
             }
         }
     }
+}
+
+@Composable
+private fun MenuItem(
+    label: String,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                label,
+                color = if (destructive && enabled) MaterialTheme.colorScheme.error else Color.Unspecified,
+            )
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
 
 @Composable
