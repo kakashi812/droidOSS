@@ -41,15 +41,13 @@ Windows will likely show a blue **"Windows protected your PC"** box — that's S
 
 Nothing else is required. The .NET runtime is bundled inside the executable, so there is no framework to install.
 
-A console window opens and prints the name phones will see, plus its address in case you need to type it:
+The droidOSS window opens. At the top it shows the name phones will see this PC as, and its address with a **Copy** button in case you need to type it. Below that are four cards, **Player 1–4**: each one lights up when a phone takes that slot, with the phone's address, how long it has been connected, and how good the connection is.
 
-```
-Waiting for a phone. On the same Wi-Fi, the app lists this PC as "DESKTOP-GAMING".
-Or type one of these addresses into it:
-      192.168.1.42:27500
-```
+Leave it open — closing it disconnects the controllers. If Windows Firewall prompts, allow it and make sure **Private networks** is ticked.
 
-Leave it open — closing it disconnects the controller. If Windows Firewall prompts, allow it and make sure **Private networks** is ticked.
+**Developer mode** (the switch at the bottom, remembered between runs) adds a live drawing of what each phone is sending — sticks, triggers and buttons — plus packet rates and a log of connections, rumble and dropped packets. Handy for checking a phone works before starting a game.
+
+Prefer text? `droidOSS-server.exe --console` runs the same server in a terminal, as earlier versions did.
 
 ### 3. Install the app
 
@@ -83,7 +81,7 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 
 - [x] ~~**The layout can't be customised.**~~ — **Fixed in v0.1.1 (app):** move, resize and save your own controller layouts.
 - [x] **Automatic discovery** — the app lists every server on the Wi-Fi; tap one to connect.
-- [ ] **Tray-icon server** with settings, instead of a console window.
+- [x] **A proper window for the server** — player cards instead of a console, with a developer mode for live input and logs.
 - [ ] **Rumble** — vibration from the game travelling back to the phone.
 - [ ] **Analog triggers** — gradual travel instead of on/off.
 - [ ] **Windows on ARM** build (currently x64 only).
@@ -101,7 +99,9 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 3. Both devices are on the same Wi-Fi — not one on mobile data, and not one on a 2.4 GHz network with the other on the 5 GHz version of it.
 4. Your router doesn't have **AP isolation** (sometimes "client isolation") enabled. This blocks devices from reaching each other, and no software can work around it.
 
-**"Could not reach the ViGEmBus driver"** — step 1 didn't complete. Reinstall and reboot.
+**"One more thing to install"** (or "Could not reach the ViGEmBus driver" in `--console`) — step 1 didn't complete. Use the **Download ViGEmBus** button, install, reboot if asked, then press **Try again**.
+
+**"droidOSS is already running"** — another copy of the server has the controller port. Close it (check the taskbar), then press **Try again**.
 
 **The controller works but a game ignores it** — if it's on Steam, try right-clicking the game → Properties → Controller → **Disable Steam Input**. Steam's remapping layer sits on top and sometimes swallows input.
 
@@ -114,8 +114,17 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 **Server** — needs the [.NET SDK](https://dotnet.microsoft.com/download) 10.0 or newer:
 
 ```bash
-dotnet test server/DroidOSS.sln          # 109 tests
-dotnet run --project server/DroidOSS.App
+dotnet test server/DroidOSS.sln          # 135 tests
+dotnet run --project server/DroidOSS.App                 # the window
+dotnet run --project server/DroidOSS.App -- --console    # text mode
+```
+
+To build the single `.exe` a release ships, with the .NET runtime inside:
+
+```bash
+dotnet publish server/DroidOSS.App -c Release -r win-x64 --self-contained \
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+  -p:EnableCompressionInSingleFile=true -p:DebugType=none -o dist
 ```
 
 **Android app** — open `androidapp3/` in Android Studio (not the repo root), or:

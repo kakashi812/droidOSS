@@ -6,10 +6,14 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- A Windows app, so double-clicking it opens the window without a console
+         flashing up behind it. The console and demo modes attach one themselves. -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <StartupObject>DroidOSS.App.Program</StartupObject>
   </PropertyGroup>
 
 </Project>

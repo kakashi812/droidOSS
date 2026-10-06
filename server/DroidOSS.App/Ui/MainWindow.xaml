@@ -1,0 +1,355 @@
+<Window x:Class="DroidOSS.App.Ui.MainWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:DroidOSS.App.Ui"
+        Title="droidOSS Server"
+        Width="980" Height="720" MinWidth="720" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Bg}"
+        Foreground="{DynamicResource Text}"
+        FontFamily="Segoe UI" FontSize="14"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+        <ui:InverseVisibilityConverter x:Key="Hidden" />
+        <ui:CardColumnsConverter x:Key="Columns" />
+
+        <Style x:Key="Muted" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+        </Style>
+
+        <!-- A plain rounded panel. -->
+        <Style x:Key="Panel" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Surface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Border}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Padding" Value="18" />
+        </Style>
+
+        <!-- Buttons: one filled accent style for the main action, one quiet one. -->
+        <Style x:Key="ButtonBase" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.85" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.7" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAlt}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Border}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <!-- A switch, for developer mode. -->
+        <Style x:Key="Switch" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                            <Border x:Name="Track" Width="40" Height="22" CornerRadius="11"
+                                    Background="{DynamicResource SurfaceAlt}"
+                                    BorderBrush="{DynamicResource Border}" BorderThickness="1">
+                                <Ellipse x:Name="Knob" Width="14" Height="14" Margin="4,0"
+                                         HorizontalAlignment="Left" Fill="{DynamicResource TextMuted}" />
+                            </Border>
+                            <ContentPresenter Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}" />
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource AccentText}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- One player card. -->
+        <DataTemplate x:Key="SlotCard" DataType="{x:Type ui:SlotViewModel}">
+            <Border x:Name="Card" Style="{StaticResource Panel}" Margin="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel>
+                        <ui:PlayerRing DockPanel.Dock="Left" Width="30" Height="30" Margin="0,0,12,0"
+                                       Slot="{Binding Slot}" Lit="{Binding IsConnected}" />
+                        <Border x:Name="Badge" DockPanel.Dock="Right" CornerRadius="10" Padding="10,3"
+                                VerticalAlignment="Center" Background="{DynamicResource SurfaceAlt}">
+                            <TextBlock x:Name="BadgeText" Text="Empty" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextMuted}" />
+                        </Border>
+                        <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </DockPanel>
+
+                    <!-- Empty -->
+                    <StackPanel x:Name="Empty" Grid.Row="1" Grid.RowSpan="3" VerticalAlignment="Center" Margin="0,14,0,4">
+                        <TextBlock Text="Waiting for a phone" FontSize="15" Style="{StaticResource Muted}" />
+                        <TextBlock Text="Open droidOSS on a phone and pick this PC." FontSize="12"
+                                   Style="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <!-- Connected -->
+                    <StackPanel x:Name="Connected" Grid.Row="1" Margin="0,14,0,4" Visibility="Collapsed">
+                        <TextBlock Text="{Binding Address}" FontSize="16" FontFamily="Cascadia Mono, Consolas" />
+                        <TextBlock Text="{Binding ConnectedFor}" FontSize="12" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Ellipse x:Name="QualityDot" Width="9" Height="9" Fill="{DynamicResource TextMuted}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding QualityText}" FontSize="13" Margin="8,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Developer mode: what the phone is actually sending. -->
+                    <StackPanel x:Name="Dev" Grid.Row="2" Margin="0,12,0,0" Visibility="Collapsed">
+                        <Border Height="1" Background="{DynamicResource Border}" Margin="0,0,0,10" />
+                        <ui:InputPreview State="{Binding State}" />
+                        <TextBlock Text="{Binding RateText}" FontSize="12" Margin="0,8,0,0"
+                                   FontFamily="Cascadia Mono, Consolas" Style="{StaticResource Muted}" />
+                        <TextBlock Text="{Binding PacketsText}" FontSize="12" Margin="0,2,0,0"
+                                   FontFamily="Cascadia Mono, Consolas" Style="{StaticResource Muted}" />
+                        <TextBlock Text="{Binding RumbleText}" FontSize="12" Margin="0,2,0,0"
+                                   FontFamily="Cascadia Mono, Consolas" Style="{StaticResource Muted}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                    <Setter TargetName="Empty" Property="Visibility" Value="Collapsed" />
+                    <Setter TargetName="Connected" Property="Visibility" Value="Visible" />
+                    <Setter TargetName="BadgeText" Property="Text" Value="Connected" />
+                    <Setter TargetName="BadgeText" Property="Foreground" Value="{DynamicResource Good}" />
+                    <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource Good}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding DataContext.DeveloperMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter TargetName="Badge" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsConnected}" Value="True" />
+                        <Condition Binding="{Binding DataContext.DeveloperMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter TargetName="Dev" Property="Visibility" Value="Visible" />
+                </MultiDataTrigger>
+                <DataTrigger Binding="{Binding Quality}" Value="Good">
+                    <Setter TargetName="QualityDot" Property="Fill" Value="{DynamicResource Good}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Quality}" Value="Fair">
+                    <Setter TargetName="QualityDot" Property="Fill" Value="{DynamicResource Warn}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Quality}" Value="Poor">
+                    <Setter TargetName="QualityDot" Property="Fill" Value="{DynamicResource Bad}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <!-- ── running ─────────────────────────────────────────────────── -->
+        <Grid Margin="20,16,20,14" Visibility="{Binding IsRunning, Converter={StaticResource Visible}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <DockPanel Margin="8,0,8,14">
+                <Border DockPanel.Dock="Right" VerticalAlignment="Center" CornerRadius="16" Padding="14,6"
+                        Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="9" Height="9" Fill="{DynamicResource Good}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding StatusText}" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+                <StackPanel>
+                    <TextBlock Text="droidOSS" FontSize="28" FontWeight="Bold" />
+                    <TextBlock Text="Use your phone as an Xbox 360 controller" Style="{StaticResource Muted}" />
+                </StackPanel>
+            </DockPanel>
+
+            <!-- How phones find this PC -->
+            <Border Grid.Row="1" Style="{StaticResource Panel}" Margin="8,0,8,6" Padding="18,14">
+                <StackPanel>
+                    <TextBlock TextWrapping="Wrap"
+                               Visibility="{Binding Discoverable, Converter={StaticResource Visible}}">
+                        <Run Text="On the same Wi-Fi, the droidOSS app lists this PC as" />
+                        <Run Text="{Binding ServerName, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Accent}" /><Run Text="." />
+                    </TextBlock>
+                    <TextBlock Text="{Binding DiscoveryWarning}" TextWrapping="Wrap" Foreground="{DynamicResource Warn}"
+                               Visibility="{Binding Discoverable, Converter={StaticResource Hidden}}" />
+                    <DockPanel Margin="0,8,0,0">
+                        <TextBlock Text="Or type this address into the app:" Style="{StaticResource Muted}"
+                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <ItemsControl ItemsSource="{Binding Addresses}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,14,2">
+                                        <TextBlock Text="{Binding}" FontFamily="Cascadia Mono, Consolas" FontSize="15"
+                                                   VerticalAlignment="Center" />
+                                        <Button Content="Copy" Style="{StaticResource QuietButton}" Padding="10,3"
+                                                Margin="8,0,0,0" FontSize="12" Click="CopyAddress_Click" Tag="{Binding}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- The four players -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Slots}" ItemTemplate="{StaticResource SlotCard}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <!-- Two by two normally; one row of four in developer mode,
+                                 so each card has room for its live preview. -->
+                            <UniformGrid Columns="{Binding DataContext.DeveloperMode,
+                                RelativeSource={RelativeSource AncestorType=Window},
+                                Converter={StaticResource Columns}}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Developer log -->
+            <Border Grid.Row="3" Style="{StaticResource Panel}" Margin="8,6,8,0" Padding="14,10" Height="170"
+                    Visibility="{Binding DeveloperMode, Converter={StaticResource Visible}}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button Content="Copy log" Style="{StaticResource QuietButton}" Padding="10,3" FontSize="12"
+                                    Click="CopyLog_Click" />
+                            <Button Content="Clear" Style="{StaticResource QuietButton}" Padding="10,3" FontSize="12"
+                                    Margin="6,0,0,0" Click="ClearLog_Click" />
+                        </StackPanel>
+                        <TextBlock Text="Log" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DroppedText}" FontSize="12" Margin="14,0,0,0" VerticalAlignment="Center"
+                                   FontFamily="Cascadia Mono, Consolas" Style="{StaticResource Muted}" />
+                    </DockPanel>
+                    <ListBox x:Name="LogList" ItemsSource="{Binding Log}" Background="Transparent" BorderThickness="0"
+                             Foreground="{DynamicResource Text}" FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="2,1" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <ContentPresenter Margin="{TemplateBinding Padding}" />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Footer -->
+            <DockPanel Grid.Row="4" Margin="10,12,10,0">
+                <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="12">
+                    <Hyperlink NavigateUri="https://github.com/kakashi812/droidOSS" RequestNavigate="Link_RequestNavigate"
+                               Foreground="{DynamicResource Accent}">github.com/kakashi812/droidOSS</Hyperlink>
+                </TextBlock>
+                <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding DeveloperMode}"
+                          HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <TextBlock>
+                        <Run Text="Developer mode" FontWeight="SemiBold" />
+                        <Run Text="  live input, packet rates and a log" Foreground="{DynamicResource TextMuted}" FontSize="12" />
+                    </TextBlock>
+                </CheckBox>
+            </DockPanel>
+        </Grid>
+
+        <!-- ── starting ────────────────────────────────────────────────── -->
+        <TextBlock Text="Starting…" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16"
+                   Style="{StaticResource Muted}"
+                   Visibility="{Binding IsStarting, Converter={StaticResource Visible}}" />
+
+        <!-- ── driver missing ──────────────────────────────────────────── -->
+        <Border Style="{StaticResource Panel}" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Padding="30,26" Visibility="{Binding IsDriverMissing, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <TextBlock Text="One more thing to install" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock TextWrapping="Wrap" Margin="0,10,0,0" Style="{StaticResource Muted}"
+                           Text="droidOSS needs the free ViGEmBus driver to create virtual Xbox controllers. It only has to be installed once." />
+                <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" LineHeight="22">
+                    1. Download the installer and run it.<LineBreak />
+                    2. Accept the admin prompt, and reboot if it asks.<LineBreak />
+                    3. Come back here and press Try again.
+                </TextBlock>
+                <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+                    <Button Content="Download ViGEmBus" Style="{StaticResource AccentButton}" Click="DownloadDriver_Click" />
+                    <Button Content="Try again" Style="{StaticResource QuietButton}" Margin="10,0,0,0" Click="Retry_Click" />
+                </StackPanel>
+                <TextBlock Text="{Binding ErrorDetails}" FontSize="11" Margin="0,16,0,0" TextWrapping="Wrap"
+                           Style="{StaticResource Muted}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ── already running ─────────────────────────────────────────── -->
+        <Border Style="{StaticResource Panel}" MaxWidth="560" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Padding="30,26" Visibility="{Binding IsPortInUse, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <TextBlock Text="droidOSS is already running" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock TextWrapping="Wrap" Margin="0,10,0,0" Style="{StaticResource Muted}"
+                           Text="Another droidOSS server on this PC is using the controller port. Close the other window — check the taskbar — then press Try again." />
+                <Button Content="Try again" Style="{StaticResource AccentButton}" HorizontalAlignment="Left"
+                        Margin="0,20,0,0" Click="Retry_Click" />
+                <TextBlock Text="{Binding ErrorDetails}" FontSize="11" Margin="0,16,0,0" TextWrapping="Wrap"
+                           Style="{StaticResource Muted}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
