@@ -145,6 +145,10 @@ internal sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<string> Addresses { get; } = [];
 
+    /// <summary>"version 0.2.0", from the assembly — set once, in the csproj.</summary>
+    public string Version { get; } =
+        $"version {typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "?"}";
+
     public ObservableCollection<LogEntry> Log { get; } = [];
 
     public Screen Screen

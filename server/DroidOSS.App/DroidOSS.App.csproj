@@ -14,6 +14,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <StartupObject>DroidOSS.App.Program</StartupObject>
+    <Version>0.2.0</Version>
+    <Product>droidOSS</Product>
+    <AssemblyTitle>droidOSS Server</AssemblyTitle>
   </PropertyGroup>
 
 </Project>
