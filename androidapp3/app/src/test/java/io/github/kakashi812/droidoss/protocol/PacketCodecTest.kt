@@ -154,4 +154,44 @@ class PacketCodecTest {
         val expected = "da010100" + "07000000" + "0".repeat(24)
         assertEquals(expected, hex(writer.bytes, length))
     }
+
+    // ── discovery ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `discover matches the golden vector`() {
+        val writer = PacketWriter()
+        val length = writer.writeDiscover()
+
+        assertEquals("da0106ff", hex(writer.bytes, length))
+    }
+
+    /** Server "PC", input port 27500, 3 pads free — the same bytes as
+     *  `DiscoveryMessageTests.cs` and `tools/fake_phone.py`. */
+    @Test
+    fun `announcement golden vector decodes`() {
+        val bytes = byteArrayOf(
+            0xDA.toByte(), 0x01, 0x03, 0xFF.toByte(), 0x6C, 0x6B, 0x03, 0x02, 0x50, 0x43,
+        )
+
+        assertEquals(
+            Announcement(name = "PC", inputPort = 27500, freePads = 3),
+            PacketReader.readAnnounce(bytes, bytes.size),
+        )
+    }
+
+    @Test
+    fun `announcement with a length that disagrees with its name is rejected`() {
+        val bytes = byteArrayOf(
+            0xDA.toByte(), 0x01, 0x03, 0xFF.toByte(), 0x6C, 0x6B, 0x03, 0x02, 0x50, 0x43,
+        )
+
+        assertNull(PacketReader.readAnnounce(bytes, bytes.size - 1))
+    }
+
+    @Test
+    fun `a session welcome is not an announcement`() {
+        val bytes = byteArrayOf(0xDA.toByte(), 0x01, 0x03, 0x01)
+
+        assertNull(PacketReader.readAnnounce(bytes, bytes.size))
+    }
 }

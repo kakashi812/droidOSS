@@ -41,10 +41,11 @@ Windows will likely show a blue **"Windows protected your PC"** box — that's S
 
 Nothing else is required. The .NET runtime is bundled inside the executable, so there is no framework to install.
 
-A console window opens and prints the address to use:
+A console window opens and prints the name phones will see, plus its address in case you need to type it:
 
 ```
-Waiting for a phone. Point it at:
+Waiting for a phone. On the same Wi-Fi, the app lists this PC as "DESKTOP-GAMING".
+Or type one of these addresses into it:
       192.168.1.42:27500
 ```
 
@@ -56,7 +57,9 @@ Copy the `.apk` to your phone and tap it. Android will block installing from unk
 
 ### 4. Connect
 
-Type the address from step 2 into the app and tap **Connect**. The phone turns sideways and shows a gamepad.
+Open the app. It searches the Wi-Fi for running servers and lists each one by PC name, showing how many pads are free. Tap yours. If several PCs on the network run the server, they all appear and you pick one. The phone turns sideways and shows a gamepad.
+
+If your PC isn't listed (some networks block broadcasts), tap **Scan again**, or type the address from step 2 into the box below the list and tap **Connect**.
 
 To check it's working, press <kbd>Win</kbd>+<kbd>R</kbd> and run `joy.cpl` → Properties.
 
@@ -79,7 +82,7 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 ## Roadmap
 
 - [x] ~~**The layout can't be customised.**~~ — **Fixed in v0.1.1 (app):** move, resize and save your own controller layouts.
-- [ ] **Automatic discovery** — find the PC on the network instead of typing its address by hand.
+- [x] **Automatic discovery** — the app lists every server on the Wi-Fi; tap one to connect.
 - [ ] **Tray-icon server** with settings, instead of a console window.
 - [ ] **Rumble** — vibration from the game travelling back to the phone.
 - [ ] **Analog triggers** — gradual travel instead of on/off.
@@ -89,7 +92,9 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 
 ## If it doesn't work
 
-**"No answer from that address"** — the two devices can't see each other. Check, in order:
+**The server isn't in the app's list** — work through the checks below, which apply to discovery too. Discovery also uses UDP port **27501**, and some guest or public networks block broadcasts. The address box still works in that case.
+
+**"No answer from that server"** — the two devices can't see each other. Check, in order:
 
 1. The server window is still open.
 2. The address matches **exactly** what the server printed.

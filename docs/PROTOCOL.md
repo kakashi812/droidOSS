@@ -63,9 +63,33 @@ byte   0     1     2     3     4-7      8-9     10    11   12-13 14-15 16-17 18-
 | `0x03` WELCOME | PC → phone | "You're pad 2." Also proves a server exists at this address. |
 | `0x04` BYE | phone → PC | Clean exit — unplug now rather than waiting for the timeout. |
 | `0x05` RUMBLE | PC → phone | Vibration intensity from the game. |
-| `0x06` DISCOVER | broadcast | "Any servers out there?" Answered with WELCOME. |
+| `0x06` DISCOVER | broadcast | "Any servers out there?" Answered with a WELCOME announcement — see [Discovery](#discovery). |
 
 Non-INPUT messages share the same 4-byte header; their payloads are defined as each is implemented.
+
+## Discovery
+
+Lets the phone find servers instead of the user typing an address. Everything here travels on port `27501`, never the input port.
+
+1. The phone broadcasts **DISCOVER**, the bare header `DA 01 06 FF`, to each of its interfaces' subnet broadcast addresses and to `255.255.255.255`. It repeats every 300 ms for a 1.5 s scan, because a broadcast can be lost like any other datagram.
+2. Every server that hears it replies **unicast to the sender** with a WELCOME *announcement*:
+
+```
+byte   0     1    2     3      4-5        6         7          8..
+     0xDA   ver  0x03  0xFF  inputPort  freePads  nameLength  name
+      u8    u8    u8    u8     u16        u8        u8       UTF-8, ≤ 64 bytes
+```
+
+| Field | Meaning |
+|---|---|
+| `pad` | Always `0xFF`. An announcement assigns no slot; the phone still says HELLO on `inputPort` to get one. |
+| `inputPort` | Where to send HELLO, normally `27500`. |
+| `freePads` | Slots still free, `0`–`4`. A full server is shown as full instead of being tried. |
+| `name` | The PC's name, shown to the user. The server cuts it on a character boundary if it is too long. |
+
+3. The phone takes the server's **address from the reply's source**, groups replies by address and `inputPort`, and lists every server it found. When several servers share a network, the user picks one.
+
+An announcement is at least 8 bytes long, so it can never be mistaken for the 4-byte session WELCOME that shares its type byte. Golden vector, server `"PC"`, port 27500, 3 pads free: `DA 01 03 FF 6C 6B 03 02 50 43`.
 
 **There is deliberately no heartbeat message.** The input stream *is* the heartbeat — a packet every 8 ms means silence is unmistakable.
 

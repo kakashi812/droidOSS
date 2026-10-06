@@ -21,7 +21,7 @@ object Protocol {
     /** UDP port carrying input and session messages. */
     const val INPUT_PORT = 27500
 
-    /** UDP port for discovery broadcasts only. Not used until B6. */
+    /** UDP port for discovery broadcasts and the announcements that answer them. */
     const val DISCOVERY_PORT = 27501
 
     /** 4 header + 4 sequence + 12 payload. */
@@ -29,6 +29,12 @@ object Protocol {
 
     /** The header every message shares, whatever its type. */
     const val HEADER_SIZE = 4
+
+    /** Header + port + free pads + name length, before an announcement's name. */
+    const val ANNOUNCE_FIXED_SIZE = HEADER_SIZE + 4
+
+    /** Longest server name an announcement carries, in UTF-8 bytes. */
+    const val MAX_SERVER_NAME_BYTES = 64
 
     /** HELLO, WELCOME and BYE carry no payload — the header says everything. */
     const val SESSION_MESSAGE_SIZE = HEADER_SIZE
@@ -107,7 +113,10 @@ enum class MessageType(val id: Byte) {
     /** Vibration intensity from the game. PC to phone. Not used until B8. */
     RUMBLE(0x05),
 
-    /** "Any servers out there?" Broadcast, answered with WELCOME. Not used until B6. */
+    /**
+     * "Any servers out there?" Broadcast on [Protocol.DISCOVERY_PORT], answered by
+     * each server with a WELCOME announcement — see [PacketReader.readAnnounce].
+     */
     DISCOVER(0x06);
 
     companion object {

@@ -65,6 +65,8 @@ point the real Android app at this to check the phone side in isolation.
 | `--duration` | stop after N seconds (default: until Ctrl+C) |
 | `--selftest` | verify encoding, print the golden packet, exit |
 | `--listen` | receive and decode instead of sending |
+| `--discover` | broadcast DISCOVER and list every server that answers |
+| `--announce NAME` | answer DISCOVER as a server called NAME, advertising `--port` (tests the app's server list without Windows) |
 
 ### Testing both ends at once
 
