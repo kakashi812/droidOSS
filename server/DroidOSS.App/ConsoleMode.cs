@@ -46,6 +46,26 @@ internal static class ConsoleMode
                 Console.WriteLine($"  rumble: pad {e.Slot}  large={e.LargeMotor} small={e.SmallMotor}");
             };
 
+            // Every colour report, deduplicated: a DualShock 4 restates its
+            // lightbar with each output report, which games send constantly.
+            var lastLight = new (byte, Rgb)?[IPadBackend.MaxPads];
+            backend.LightChanged += (_, e) =>
+            {
+                if (lastLight[e.Slot] == (e.Player, e.Colour)) return;
+                lastLight[e.Slot] = (e.Player, e.Colour);
+                Console.WriteLine($"  light: pad {e.Slot}  player {e.Player}  {e.Colour}");
+            };
+
+            // What games and Steam send a PS4 pad, byte for byte, when it changes.
+            var lastReport = new string?[IPadBackend.MaxPads];
+            backend.OutputReportReceived += (slot, report) =>
+            {
+                var hex = Convert.ToHexString(report.AsSpan(0, Math.Min(report.Length, 12)));
+                if (lastReport[slot] == hex) return;
+                lastReport[slot] = hex;
+                Console.WriteLine($"  ps4 report: pad {slot}  {hex}");
+            };
+
             return demo
                 ? await RunDemoAsync(backend)
                 : await RunServerAsync(backend);

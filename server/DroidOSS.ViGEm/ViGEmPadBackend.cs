@@ -39,6 +39,13 @@ public sealed class ViGEmPadBackend : IPadBackend
     public event EventHandler<RumbleEventArgs>? RumbleReceived;
     public event EventHandler<LightEventArgs>? LightChanged;
 
+    /// <summary>
+    /// Every raw output report a game or Steam sends a DualShock 4, before it is
+    /// interpreted — for the developer log, to show exactly what arrived.
+    /// Raised on the pad's reader thread.
+    /// </summary>
+    public event Action<int, byte[]>? OutputReportReceived;
+
     public ViGEmPadBackend(PadKind kind = PadKind.Xbox360)
     {
         Kind = kind;
@@ -295,6 +302,7 @@ public sealed class ViGEmPadBackend : IPadBackend
                 }
 
                 if (cts.IsCancellationRequested) return;
+                OutputReportReceived?.Invoke(slot, report);
                 if (!DualShock4OutputReport.TryParse(report, out var rumble, out var lightbar)) continue;
 
                 if (rumble is { } r)

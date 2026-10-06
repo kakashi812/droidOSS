@@ -93,6 +93,8 @@ internal partial class MainWindow : Window
             {
                 _backend = new ViGEmPadBackend(_vm.PadKind);
                 _backend.RumbleReceived += OnRumble;
+                _backend.LightChanged += OnLightReported;
+                _backend.OutputReportReceived += OnOutputReport;
             }
             catch (PadDriverUnavailableException ex)
             {
@@ -237,6 +239,39 @@ internal partial class MainWindow : Window
         });
     }
 
+    // Last colour and raw report logged per slot. A DualShock 4 is sent the
+    // same report over and over; only a change is worth a line.
+    private readonly (byte, Rgb)?[] _lastLightLogged = new (byte, Rgb)?[IPadBackend.MaxPads];
+    private readonly string?[] _lastReportLogged = new string?[IPadBackend.MaxPads];
+
+    /// <summary>
+    /// Logs each new colour a pad reports. In PlayStation 4 mode this is how to
+    /// tell whether a game or Steam is setting the lightbar at all.
+    /// </summary>
+    private void OnLightReported(object? sender, LightEventArgs e) => Dispatcher.BeginInvoke(() =>
+    {
+        if (e.Slot < 0 || e.Slot >= _lastLightLogged.Length) return;
+        if (_lastLightLogged[e.Slot] == (e.Player, e.Colour)) return;
+        _lastLightLogged[e.Slot] = (e.Player, e.Colour);
+        _vm.AddLog($"  Player {e.Slot + 1} light: {e.Colour}" +
+                   (_vm.PadKind == PadKind.Xbox360 ? $" (player {e.Player} in games)" : ""));
+    });
+
+    /// <summary>What a game or Steam sent a PlayStation 4 pad, byte for byte, when it changes.</summary>
+    private void OnOutputReport(int slot, byte[] report)
+    {
+        var hex = Convert.ToHexString(report.AsSpan(0, Math.Min(report.Length, 11)));
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (slot < 0 || slot >= _lastReportLogged.Length || _lastReportLogged[slot] == hex) return;
+            _lastReportLogged[slot] = hex;
+            var lightbar = DualShock4OutputReport.TryParse(report, out _, out var colour) && colour is { } c
+                ? $" — lightbar {c}"
+                : "";
+            _vm.AddLog($"  Player {slot + 1} PS4 report {hex}{lightbar}");
+        });
+    }
+
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.PadKind))
@@ -294,9 +329,16 @@ internal partial class MainWindow : Window
 
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // Follow the newest line, like a terminal would.
+        // Follow the newest line, like a terminal would -- but not from inside
+        // this event. Scrolling forces a layout pass, and this handler can run
+        // before the list has heard about the new line; WPF then finds the list
+        // and its source disagreeing and throws, taking the server down with it.
+        // Queued, it runs once every listener has caught up.
         if (e.Action == NotifyCollectionChangedAction.Add && _vm.DeveloperMode && e.NewItems?[0] is { } item)
-            LogList.ScrollIntoView(item);
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                if (_vm.Log.Contains(item)) LogList.ScrollIntoView(item);
+            });
     }
 
     // ── buttons ──────────────────────────────────────────────────────────

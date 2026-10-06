@@ -47,7 +47,10 @@ Leave it open — closing it disconnects the controllers. If Windows Firewall pr
 
 **Developer mode** (the switch at the bottom, remembered between runs) adds a live drawing of what each phone is sending — sticks, triggers and buttons — plus packet rates and a log of connections, rumble and dropped packets. Handy for checking a phone works before starting a game.
 
-**Games see** (in the top panel) chooses the controller games are shown: **Xbox 360** works with every PC game, and each phone glows along its top edge in its player colour — 1 blue, 2 red, 3 green, 4 pink. **PlayStation 4** passes on the lightbar colour the game or Steam picks, so the phone matches what FIFA or Steam shows; games then show PlayStation buttons, and older games may need Steam Input turned on to see the controller.
+**Games see** (in the top panel) chooses the controller games are shown:
+
+- **Xbox 360** works with every PC game. Each phone glows along its top edge in a fixed player colour — 1 blue, 2 red, 3 green, 4 pink. Xbox controllers have no light, so games cannot change it.
+- **PlayStation 4** passes on whatever lightbar colour the game sets, so a game that lights the controller in your player's colour lights the phone the same way. Games show PlayStation buttons. A Steam game only sees the PlayStation controller with Steam Input turned off for it (right-click the game → Properties → Controller → *Disable Steam Input*); with Steam Input on, Steam shows the game an Xbox controller and applies its own single light colour instead. Developer mode logs every colour and PlayStation report the server receives, so you can see what a game sends.
 
 When a game rumbles the controller, the phone vibrates. Turn it off, or set its strength, under **Vibration** in the app.
 

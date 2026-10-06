@@ -238,9 +238,10 @@ internal sealed class MainViewModel : ObservableObject
     public bool IsDualShock4 { get => PadKind == PadKind.DualShock4; set { if (value) PadKind = PadKind.DualShock4; } }
 
     public string PadKindHint => PadKind == PadKind.DualShock4
-        ? "Phones show the lightbar colour the game or Steam sets. Games show PlayStation buttons; " +
-          "older games may need Steam Input on to see it."
-        : "Works with every PC game. Phones show their player colour: 1 blue, 2 red, 3 green, 4 pink.";
+        ? "Phones glow in the lightbar colour the game sets. For a Steam game such as FC 26, turn " +
+          "Steam Input off for that game so it sees the PlayStation controller."
+        : "Works with every game. Phones glow in a fixed player colour (1 blue, 2 red, 3 green, 4 pink): " +
+          "Xbox controllers have no light, so games cannot change it.";
 
     /// <summary>Dropped-packet counters, shown above the log.</summary>
     public string DroppedText { get => _droppedText; set => Set(ref _droppedText, value); }
