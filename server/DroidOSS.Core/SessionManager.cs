@@ -1,4 +1,4 @@
-namespace DroidOSS.Core;
+﻿namespace DroidOSS.Core;
 
 /// <summary>What happened to a message we were handed.</summary>
 /// <remarks>
@@ -49,11 +49,13 @@ public enum SessionCloseReason
 }
 
 /// <summary>A connected phone, as seen from outside.</summary>
+/// <param name="ConnectedAt">When its HELLO was accepted, for "connected for 5m" displays.</param>
 public readonly record struct SessionInfo(
     ClientKey Client,
     int Slot,
     PadState LastState,
-    long Applied);
+    long Applied,
+    DateTimeOffset ConnectedAt);
 
 public sealed class SessionEventArgs(ClientKey client, int slot, SessionCloseReason? reason = null)
     : EventArgs
@@ -88,6 +90,7 @@ public sealed class SessionManager
     {
         public ClientKey Client { get; } = client;
         public int Slot { get; } = slot;
+        public DateTimeOffset ConnectedAt { get; init; }
         public DateTimeOffset LastSeen { get; set; }
         public PadState LastState { get; set; }
         public long Applied { get; set; }
@@ -276,7 +279,8 @@ public sealed class SessionManager
         // gate must forget whatever the previous occupant of this slot reached.
         _gates[slot].Reset();
 
-        var session = new Session(sender, slot) { LastSeen = _clock.GetUtcNow() };
+        var now = _clock.GetUtcNow();
+        var session = new Session(sender, slot) { ConnectedAt = now, LastSeen = now };
         _sessions[sender] = session;
         _slotTaken[slot] = true;
 
@@ -373,7 +377,7 @@ public sealed class SessionManager
             var list = new List<SessionInfo>(_sessions.Count);
             foreach (var session in _sessions.Values)
                 list.Add(new SessionInfo(
-                    session.Client, session.Slot, session.LastState, session.Applied));
+                    session.Client, session.Slot, session.LastState, session.Applied, session.ConnectedAt));
 
             list.Sort((a, b) => a.Slot.CompareTo(b.Slot));
             return list;

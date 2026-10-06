@@ -614,6 +614,20 @@ public class SessionManagerTests
     }
 
     [Fact]
+    public void A_snapshot_says_when_each_phone_connected_and_a_repeat_hello_does_not_reset_it()
+    {
+        var f = new Fixture();
+        var start = f.Clock.GetUtcNow();
+        var slot = f.Connect(PhoneA);
+
+        f.Clock.Advance(5);
+        Assert.Equal(MessageOutcome.Ignored, f.Hello(PhoneA));   // a retried HELLO after a lost WELCOME
+        f.Input(PhoneA, 1, SampleState);
+
+        Assert.Equal(start, f.Manager.Snapshot().Single(s => s.Slot == slot).ConnectedAt);
+    }
+
+    [Fact]
     public void Counters_add_up_across_a_mixed_stream()
     {
         var f = new Fixture();
