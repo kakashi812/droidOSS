@@ -189,6 +189,21 @@ public class SessionManagerTests
         Assert.Equal(second, f.Connect(PhoneD));
     }
 
+    /// <summary>What discovery announces, so a phone can show a full server before trying it.</summary>
+    [Fact]
+    public void Free_slots_track_connections_and_departures()
+    {
+        var f = new Fixture();
+        Assert.Equal(4, f.Manager.FreeSlots);
+
+        f.Connect(PhoneA);
+        f.Connect(PhoneB);
+        Assert.Equal(2, f.Manager.FreeSlots);
+
+        f.Bye(PhoneA);
+        Assert.Equal(3, f.Manager.FreeSlots);
+    }
+
     // ── input routing ────────────────────────────────────────────────────────
 
     [Fact]

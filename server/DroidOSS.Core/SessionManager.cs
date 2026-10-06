@@ -137,6 +137,12 @@ public sealed class SessionManager
         get { lock (_lock) return _sessions.Count; }
     }
 
+    /// <summary>Pad slots still available, as announced to phones looking for a server.</summary>
+    public int FreeSlots
+    {
+        get { lock (_lock) return IPadBackend.MaxPads - _sessions.Count; }
+    }
+
     public event EventHandler<SessionEventArgs>? SessionOpened;
     public event EventHandler<SessionEventArgs>? SessionClosed;
 

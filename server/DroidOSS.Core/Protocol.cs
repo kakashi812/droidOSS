@@ -129,6 +129,9 @@ public enum MessageType : byte
     /// <summary>Vibration intensity from the game. PC to phone.</summary>
     Rumble = 0x05,
 
-    /// <summary>"Any servers out there?" Broadcast, answered with <see cref="Welcome"/>.</summary>
+    /// <summary>
+    /// "Any servers out there?" Broadcast on the discovery port, answered with a
+    /// <see cref="Welcome"/> announcement — see <see cref="DiscoveryMessage"/>.
+    /// </summary>
     Discover = 0x06,
 }

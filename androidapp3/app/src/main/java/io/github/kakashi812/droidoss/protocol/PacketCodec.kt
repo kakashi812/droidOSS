@@ -70,10 +70,24 @@ class PacketWriter {
 
         return buffer.position()
     }
+
+    /**
+     * Writes a 4-byte DISCOVER, the broadcast that asks every server on the
+     * network to announce itself.
+     *
+     * @return bytes written, always [Protocol.HEADER_SIZE].
+     */
+    fun writeDiscover(): Int = writeSession(MessageType.DISCOVER, Protocol.NO_PAD)
 }
 
 /** A session message we received and believed. */
 data class SessionMessage(val type: MessageType, val pad: Byte)
+
+/**
+ * What a server says about itself in answer to DISCOVER. Its address is not in
+ * here: it is wherever the announcement came from.
+ */
+data class Announcement(val name: String, val inputPort: Int, val freePads: Int)
 
 /**
  * Reads the messages that travel PC → phone.
@@ -104,5 +118,38 @@ object PacketReader {
         }
 
         return SessionMessage(type, data[Protocol.Offset.PAD])
+    }
+
+    /**
+     * Parses the announcement a server sends in answer to DISCOVER:
+     *
+     * ```
+     * byte  0     1    2     3      4-5        6        7          8..
+     *     0xDA  ver  0x03  0xFF  inputPort  freePads  nameLength  name (UTF-8)
+     * ```
+     *
+     * Only ever read from the discovery socket, and never four bytes long, so it
+     * cannot be confused with the session WELCOME that shares its type byte.
+     *
+     * @return null if this is not a well-formed announcement.
+     */
+    fun readAnnounce(data: ByteArray, length: Int): Announcement? {
+        if (length < Protocol.ANNOUNCE_FIXED_SIZE) return null
+        if (data[Protocol.Offset.MAGIC] != Protocol.MAGIC_BYTE) return null
+        if (data[Protocol.Offset.VERSION] != Protocol.VERSION) return null
+        if (data[Protocol.Offset.TYPE] != MessageType.WELCOME.id) return null
+
+        val buffer = ByteBuffer.wrap(data, 0, length).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(Protocol.HEADER_SIZE)
+
+        val port = buffer.short.toInt() and 0xFFFF
+        val freePads = buffer.get().toInt() and 0xFF
+        val nameLength = buffer.get().toInt() and 0xFF
+
+        if (nameLength > Protocol.MAX_SERVER_NAME_BYTES) return null
+        if (length != Protocol.ANNOUNCE_FIXED_SIZE + nameLength) return null
+
+        val name = String(data, Protocol.ANNOUNCE_FIXED_SIZE, nameLength, Charsets.UTF_8)
+        return Announcement(name, port, freePads)
     }
 }

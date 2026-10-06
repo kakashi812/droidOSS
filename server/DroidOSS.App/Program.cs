@@ -77,13 +77,38 @@ internal static class Program
             return 1;
         }
 
+        // Discovery is a convenience, not a requirement: if its port is taken the
+        // server still works, phones just have to be given the address by hand.
+        using var discovery = new DiscoveryResponder(sessions, Environment.MachineName);
+        var discoverable = true;
+        try
+        {
+            discovery.Bind();
+        }
+        catch (SocketException ex)
+        {
+            discoverable = false;
+            Console.Error.WriteLine($"Could not bind UDP port {Protocol.DiscoveryPort} for discovery.");
+            Console.Error.WriteLine("Phones will not find this PC on their own; type the address below instead.");
+            Console.Error.WriteLine($"Details: {ex.Message}");
+            Console.Error.WriteLine();
+        }
+
         sessions.SessionOpened += (_, e) =>
             Console.WriteLine($"  + pad {e.Slot}  {e.Client}  connected");
 
         sessions.SessionClosed += (_, e) =>
             Console.WriteLine($"  - pad {e.Slot}  {e.Client}  gone ({Describe(e.Reason)})");
 
-        Console.WriteLine("Waiting for a phone. Point it at:");
+        if (discoverable)
+        {
+            Console.WriteLine($"Waiting for a phone. On the same Wi-Fi, the app lists this PC as \"{discovery.ServerName}\".");
+            Console.WriteLine("Or type one of these addresses into it:");
+        }
+        else
+        {
+            Console.WriteLine("Waiting for a phone. Point it at:");
+        }
         foreach (var address in LocalAddresses())
             Console.WriteLine($"      {address}:{Protocol.InputPort}");
         Console.WriteLine();
@@ -96,6 +121,7 @@ internal static class Program
 
         await Task.WhenAll(
             listener.ListenAsync(cts.Token),
+            discoverable ? discovery.ListenAsync(cts.Token) : Task.CompletedTask,
             SweepAsync(sessions, cts.Token),
             ReportStatusAsync(sessions, cts.Token));
 

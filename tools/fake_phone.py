@@ -15,6 +15,8 @@ Usage:
     py tools/fake_phone.py --selftest              # print the golden packets, exit
     py tools/fake_phone.py --host 192.168.1.12     # connect, then stream at 125 Hz
     py tools/fake_phone.py --listen                # decode an incoming stream
+    py tools/fake_phone.py --discover              # list servers on this network
+    py tools/fake_phone.py --announce "Test PC"    # answer DISCOVER like a server
     py tools/fake_phone.py --no-handshake          # send input without connecting
 
 Run several at once to test multiple pads -- each gets its own slot.
@@ -181,6 +183,55 @@ def decode_session(data: bytes) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Discovery -- DISCOVER is broadcast on DISCOVERY_PORT, and each server answers
+# with a WELCOME announcement carrying a payload:
+#
+#   magic, version, 0x03, 0xFF | inputPort u16 | freePads u8 | nameLength u8 | name
+#
+# It is never four bytes long, so it cannot be mistaken for a session WELCOME.
+# ---------------------------------------------------------------------------
+
+ANNOUNCE_FIXED_FORMAT = "<BBBBHBB"
+ANNOUNCE_FIXED_SIZE = 8
+MAX_SERVER_NAME_BYTES = 64
+
+assert struct.calcsize(ANNOUNCE_FIXED_FORMAT) == ANNOUNCE_FIXED_SIZE
+
+
+def encode_discover() -> bytes:
+    """Build the 4-byte DISCOVER broadcast."""
+    return encode_session(MSG_DISCOVER, NO_PAD)
+
+
+def is_discover(data: bytes) -> bool:
+    return data == encode_discover()
+
+
+def encode_announce(name: str, input_port: int, free_pads: int) -> bytes:
+    """Build a server's answer to DISCOVER, cutting the name on a character boundary."""
+    raw = name.encode("utf-8")[:MAX_SERVER_NAME_BYTES].decode("utf-8", "ignore").encode("utf-8")
+    return struct.pack(ANNOUNCE_FIXED_FORMAT, MAGIC_BYTE, VERSION, MSG_WELCOME, NO_PAD,
+                       input_port, max(0, min(free_pads, 4)), len(raw)) + raw
+
+
+def decode_announce(data: bytes) -> dict | None:
+    """Parse an announcement, or return None if it isn't one."""
+    if len(data) < ANNOUNCE_FIXED_SIZE:
+        return None
+
+    magic, version, msg_type, _pad, port, free, name_length = struct.unpack(
+        ANNOUNCE_FIXED_FORMAT, data[:ANNOUNCE_FIXED_SIZE])
+
+    if magic != MAGIC_BYTE or version != VERSION or msg_type != MSG_WELCOME:
+        return None
+    if name_length > MAX_SERVER_NAME_BYTES or len(data) != ANNOUNCE_FIXED_SIZE + name_length:
+        return None
+
+    name = data[ANNOUNCE_FIXED_SIZE:].decode("utf-8", "replace")
+    return {"name": name, "port": port, "free_pads": free}
+
+
+# ---------------------------------------------------------------------------
 # The golden vector
 #
 # Every field carries a distinctive value, so a transposition or an endianness
@@ -208,6 +259,11 @@ GOLDEN_SESSION = {
     "WELCOME full":  (MSG_WELCOME, NO_PAD, "da0103ff"),
     "BYE pad 1":     (MSG_BYE,     1,      "da010401"),
 }
+
+# Discovery, matching server/DroidOSS.Tests/DiscoveryMessageTests.cs: DISCOVER,
+# and the announcement of server "PC" on port 27500 with 3 pads free.
+GOLDEN_DISCOVER_HEX = "da0106ff"
+GOLDEN_ANNOUNCE_HEX = "da0103ff6c6b03025043"
 
 
 def golden_packet() -> bytes:
@@ -302,6 +358,24 @@ def run_selftest() -> int:
         ok = False
     if decode_session(b"\x00" * SESSION_MESSAGE_SIZE) is not None:
         print("  FAIL: a session message with no magic byte was accepted")
+        ok = False
+
+    # ---- discovery --------------------------------------------------------
+
+    discover = encode_discover().hex()
+    announce = encode_announce("PC", INPUT_PORT, 3).hex()
+    print("  discovery:")
+    print(f"    DISCOVER       {discover}{'' if discover == GOLDEN_DISCOVER_HEX else '  <- FAIL'}")
+    print(f"    announce \"PC\"  {announce}{'' if announce == GOLDEN_ANNOUNCE_HEX else '  <- FAIL'}")
+    print()
+
+    if discover != GOLDEN_DISCOVER_HEX or announce != GOLDEN_ANNOUNCE_HEX:
+        ok = False
+    if decode_announce(bytes.fromhex(GOLDEN_ANNOUNCE_HEX)) != {"name": "PC", "port": INPUT_PORT, "free_pads": 3}:
+        print("  FAIL: the golden announcement did not decode")
+        ok = False
+    if decode_announce(encode_session(MSG_WELCOME, 1)) is not None:
+        print("  FAIL: a session WELCOME was accepted as an announcement")
         ok = False
 
     if ok:
@@ -587,6 +661,71 @@ def run_listener(port: int, duration: float | None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Discovery modes
+# ---------------------------------------------------------------------------
+
+def run_discover(scan_seconds: float = 1.5) -> int:
+    """Broadcast DISCOVER the way the phone does and list every server that answers."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.settimeout(0.1)
+
+    found: dict[tuple[str, int], dict] = {}
+    deadline = time.perf_counter() + scan_seconds
+    next_send = 0.0
+
+    print(f"Broadcasting DISCOVER to port {DISCOVERY_PORT} for {scan_seconds:.1f}s...")
+    try:
+        while time.perf_counter() < deadline:
+            if time.perf_counter() >= next_send:
+                sock.sendto(encode_discover(), ("255.255.255.255", DISCOVERY_PORT))
+                next_send = time.perf_counter() + 0.3
+            try:
+                data, sender = sock.recvfrom(128)
+            except socket.timeout:
+                continue
+
+            server = decode_announce(data)
+            if server is None:
+                continue
+            key = (sender[0], server["port"])
+            if key not in found:
+                print(f"  {server['name']:<24} {sender[0]}:{server['port']}  "
+                      f"{server['free_pads']} pad(s) free")
+            found[key] = server
+    finally:
+        sock.close()
+
+    if not found:
+        print("No servers answered. Is one running, on this network, and allowed through the firewall?")
+        return 1
+    return 0
+
+
+def run_announcer(name: str, input_port: int) -> int:
+    """Answer DISCOVER as a server would, so the phone's server list can be
+    tested without the Windows server. It only announces -- connecting to it
+    gets no WELCOME."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("", DISCOVERY_PORT))
+
+    print(f'Announcing as "{name}" (input port {input_port}) on port {DISCOVERY_PORT}. '
+          "Ctrl+C to stop.", flush=True)
+    try:
+        while True:
+            data, sender = sock.recvfrom(64)
+            if is_discover(data):
+                sock.sendto(encode_announce(name, input_port, 4), sender)
+                print(f"  answered {sender[0]}:{sender[1]}", flush=True)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        sock.close()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Pretend to be a droidOSS phone.",
@@ -605,6 +744,10 @@ def main() -> int:
                         help="stop after this many seconds (default: run until Ctrl+C)")
     parser.add_argument("--selftest", action="store_true",
                         help="print the golden packet and verify encoding, then exit")
+    parser.add_argument("--discover", action="store_true",
+                        help="list the servers that answer a DISCOVER broadcast, then exit")
+    parser.add_argument("--announce", metavar="NAME",
+                        help="answer DISCOVER as a server named NAME (for testing the phone)")
     parser.add_argument("--listen", action="store_true",
                         help="receive and decode instead of sending")
     parser.add_argument("--no-handshake", action="store_true",
@@ -614,6 +757,10 @@ def main() -> int:
 
     if args.selftest:
         return run_selftest()
+    if args.discover:
+        return run_discover()
+    if args.announce is not None:
+        return run_announcer(args.announce, args.port)
     if args.listen:
         return run_listener(args.port, args.duration)
     return run_sender(args.host, args.port, args.pad, args.rate, args.duration,

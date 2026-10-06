@@ -54,7 +54,9 @@ import androidx.compose.ui.unit.dp
 import io.github.kakashi812.droidoss.BuildConfig
 import io.github.kakashi812.droidoss.layout.ControllerLayout
 import io.github.kakashi812.droidoss.layout.DEFAULT_ID
+import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
+import io.github.kakashi812.droidoss.transport.DiscoveredServer
 
 private const val REPO_URL = "https://github.com/kakashi812/droidOSS"
 
@@ -70,9 +72,12 @@ private const val REPO_URL = "https://github.com/kakashi812/droidOSS"
 fun ConnectScreen(
     connectionState: ConnectionState,
     initialHost: String,
+    servers: List<DiscoveredServer>,
+    scanning: Boolean,
+    onScan: () -> Unit,
     layouts: List<ControllerLayout>,
     activeId: String,
-    onConnect: (String) -> Unit,
+    onConnect: (host: String, port: Int) -> Unit,
     onDisconnect: () -> Unit,
     onUse: (String) -> Unit,
     onEdit: (String) -> Unit,
@@ -112,6 +117,27 @@ fun ConnectScreen(
 
         Spacer(Modifier.height(28.dp))
 
+        ServerList(
+            servers = servers,
+            scanning = scanning,
+            lastHost = initialHost,
+            enabled = canEdit,
+            onScan = onScan,
+            onPick = { server ->
+                host = server.host
+                onConnect(server.host, server.port)
+            },
+        )
+
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = "Or enter the address yourself",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+
         OutlinedTextField(
             value = host,
             onValueChange = { host = it },
@@ -130,7 +156,7 @@ fun ConnectScreen(
 
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "The server window prints this address when it starts.",
+            text = "Needed only if the server isn't listed — the server window prints its address when it starts.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth(),
@@ -139,7 +165,7 @@ fun ConnectScreen(
         Spacer(Modifier.height(20.dp))
 
         Button(
-            onClick = { if (busy) onDisconnect() else onConnect(host.trim()) },
+            onClick = { if (busy) onDisconnect() else onConnect(host.trim(), Protocol.INPUT_PORT) },
             enabled = busy || (canEdit && valid),
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier
@@ -191,6 +217,125 @@ fun ConnectScreen(
                 renamingId = null
             },
         )
+    }
+}
+
+/**
+ * The servers that answered discovery, one tappable row each.
+ *
+ * Tapping a row connects — with several PCs on one network, the row *is* the
+ * choice. A full server stays listed but cannot be tapped, so it is clear it
+ * was found rather than mysteriously missing.
+ */
+@Composable
+private fun ServerList(
+    servers: List<DiscoveredServer>,
+    scanning: Boolean,
+    lastHost: String,
+    enabled: Boolean,
+    onScan: () -> Unit,
+    onPick: (DiscoveredServer) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Servers on this network",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (scanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    TextButton(onClick = onScan, enabled = enabled) { Text("Scan again") }
+                }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            if (servers.isEmpty()) {
+                Text(
+                    text = if (scanning) {
+                        "Looking for droidOSS servers…"
+                    } else {
+                        "None found yet — still looking. Check the " +
+                            "server is running on your PC and both devices are on the " +
+                            "same Wi-Fi, or enter its address below."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (server in servers) {
+                        ServerRow(
+                            server = server,
+                            lastUsed = server.host == lastHost,
+                            enabled = enabled && server.freePads > 0,
+                            onClick = { onPick(server) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerRow(
+    server: DiscoveredServer,
+    lastUsed: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = server.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (lastUsed) "${server.host}  ·  last used" else server.host,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.size(12.dp))
+            Text(
+                text = when (server.freePads) {
+                    0 -> "Full"
+                    1 -> "1 pad free"
+                    else -> "${server.freePads} pads free"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (server.freePads > 0) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        }
     }
 }
 
@@ -443,12 +588,12 @@ private fun headline(state: ConnectionState): String = when (state) {
     is ConnectionState.Connecting -> "Looking for the server…"
     is ConnectionState.Connected -> "Connected as player ${state.slot + 1}"
     is ConnectionState.ServerFull -> "Server is full"
-    is ConnectionState.NoServer -> "No answer from that address"
+    is ConnectionState.NoServer -> "No answer from that server"
 }
 
 private fun detail(state: ConnectionState): String? = when (state) {
     is ConnectionState.Idle ->
-        "Start the droidOSS server on your PC, then connect."
+        "Start the droidOSS server on your PC, then pick it above."
 
     is ConnectionState.Connecting -> null
 
@@ -460,6 +605,6 @@ private fun detail(state: ConnectionState): String? = when (state) {
     is ConnectionState.NoServer ->
         "Check that:\n" +
             "  •  the server is running on your PC\n" +
-            "  •  the address above matches the one it printed\n" +
+            "  •  the address matches one it printed\n" +
             "  •  both devices are on the same Wi-Fi network"
 }

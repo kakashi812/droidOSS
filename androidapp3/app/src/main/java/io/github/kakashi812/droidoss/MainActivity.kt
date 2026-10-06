@@ -23,13 +23,19 @@ import androidx.lifecycle.lifecycleScope
 import io.github.kakashi812.droidoss.layout.ControllerLayout
 import io.github.kakashi812.droidoss.layout.LayoutStore
 import io.github.kakashi812.droidoss.layout.defaultLayout
+import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
+import io.github.kakashi812.droidoss.transport.DiscoveredServer
+import io.github.kakashi812.droidoss.transport.ServerDiscovery
 import io.github.kakashi812.droidoss.transport.UdpTransport
 import io.github.kakashi812.droidoss.ui.ConnectScreen
 import io.github.kakashi812.droidoss.ui.LayoutEditorScreen
 import io.github.kakashi812.droidoss.ui.PadScreen
 import io.github.kakashi812.droidoss.ui.theme.DroidOSSTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -54,6 +60,11 @@ class MainActivity : ComponentActivity() {
     private var activeId by mutableStateOf("default")
 
     private val settings by lazy { Settings(applicationContext) }
+
+    // Servers that answered the last discovery scan, and whether one is running.
+    private var servers by mutableStateOf<List<DiscoveredServer>>(emptyList())
+    private var scanning by mutableStateOf(false)
+    private var scanJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +128,9 @@ class MainActivity : ComponentActivity() {
                             ConnectScreen(
                                 connectionState = connectionState,
                                 initialHost = settings.host,
+                                servers = servers,
+                                scanning = scanning,
+                                onScan = ::scanForServers,
                                 layouts = layouts,
                                 activeId = activeId,
                                 onConnect = ::connect,
@@ -174,7 +188,71 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         disconnect()
+        scanJob?.cancel()
     }
+
+    /**
+     * Looks for servers whenever the app comes to the front, so the list is
+     * fresh without a tap — the server may have been started, or a PC switched
+     * off, while the app was in the background.
+     */
+    override fun onResume() {
+        super.onResume()
+        scanForServers()
+    }
+
+    /**
+     * Scans now, then keeps scanning back to back until the app leaves the
+     * foreground, so a server started after the app was opened shows up without
+     * a tap. A scan resends DISCOVER every few hundred milliseconds, so a new
+     * server appears within a fraction of a second; the cost is one 4-byte
+     * broadcast per resend, and only while the list is on screen.
+     *
+     * Only the first scan shows the spinner and starts from an empty list. The
+     * repeats are silent: a newly heard server is added the moment it answers,
+     * and one that has gone quiet is dropped when the scan ends, so the list
+     * never blanks out and flickers back.
+     *
+     * Scanning pauses while a pad is connected or a layout is open — nobody is
+     * looking at the list — and the loop checks every [IDLE_POLL_MS] for the way
+     * back.
+     */
+    private fun scanForServers() {
+        scanJob?.cancel()
+        scanJob = lifecycleScope.launch {
+            var first = true
+            try {
+                while (isActive) {
+                    if (transport == null && editingId == null && viewingId == null) {
+                        scanning = first
+                        var heard = emptyList<DiscoveredServer>()
+                        ServerDiscovery.scan().collect { found ->
+                            heard = found
+                            servers = if (first) found else merge(servers, found)
+                        }
+                        servers = heard
+                        scanning = false
+                        first = false
+                        // A scan that could not open its socket returns at once;
+                        // without a pause this would spin.
+                        delay(SCAN_GAP_MS)
+                    } else {
+                        delay(IDLE_POLL_MS)
+                    }
+                }
+            } finally {
+                // A cancelled scan finishes after its replacement has started;
+                // only the current one may say scanning is over.
+                if (scanJob == coroutineContext[Job]) scanning = false
+            }
+        }
+    }
+
+    /** [shown] with [heard] laid over it: new servers added, known ones refreshed. */
+    private fun merge(shown: List<DiscoveredServer>, heard: List<DiscoveredServer>) =
+        (heard + shown)
+            .distinctBy { "${it.host}:${it.port}" }
+            .sortedBy { it.name.lowercase() }
 
     private fun useLayout(id: String) {
         store.setActive(id)
@@ -186,7 +264,7 @@ class MainActivity : ComponentActivity() {
         layouts = store.layouts()
     }
 
-    private fun connect(host: String) {
+    private fun connect(host: String, port: Int = Protocol.INPUT_PORT) {
         // Remembered on attempt rather than on success, so a typo that fails is
         // still there to correct rather than having to be retyped from scratch.
         settings.host = host
@@ -209,6 +287,7 @@ class MainActivity : ComponentActivity() {
                     UdpTransport(
                         context = applicationContext,
                         host = host,
+                        port = port,
                         onStateChange = { state ->
                             // Arrives on a socket thread; Compose state must be
                             // written from the main thread.
@@ -235,5 +314,13 @@ class MainActivity : ComponentActivity() {
         // so it must not run on the UI thread.
         lifecycleScope.launch(Dispatchers.IO) { existing.stop() }
         connectionState = ConnectionState.Idle
+    }
+
+    private companion object {
+        /** How often a paused scan loop checks whether the list is back on screen. */
+        const val IDLE_POLL_MS = 500L
+
+        /** Breather between back-to-back scans. */
+        const val SCAN_GAP_MS = 100L
     }
 }
