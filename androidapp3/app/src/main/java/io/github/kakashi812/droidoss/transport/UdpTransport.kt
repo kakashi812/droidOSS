@@ -73,6 +73,10 @@ class UdpTransport(
     private val host: String,
     private val port: Int = Protocol.INPUT_PORT,
     private val onStateChange: (ConnectionState) -> Unit = {},
+    /** The game's rumble, each motor 0–255. Called on the socket thread. */
+    private val onRumble: (large: Int, small: Int) -> Unit = { _, _ -> },
+    /** Player number and colour (`0xFFRRGGBB`). Called on the socket thread. */
+    private val onLight: (player: Int, color: Int) -> Unit = { _, _ -> },
 ) {
 
     private val socket = DatagramSocket()
@@ -100,7 +104,7 @@ class UdpTransport(
     /** Sends: handshake, then the fixed-rate stream. */
     private var senderThread: Thread? = null
 
-    /** Receives: WELCOME during the handshake, RUMBLE later (B8). */
+    /** Receives: WELCOME during the handshake, then RUMBLE and LIGHT. */
     private var receiverThread: Thread? = null
 
     /**
@@ -258,7 +262,7 @@ class UdpTransport(
         }
     }
 
-    /** WELCOME during the handshake; RUMBLE once B8 lands. */
+    /** WELCOME during the handshake; RUMBLE and LIGHT once connected. */
     private fun receiveLoop() {
         val buffer = ByteArray(64)
         val packet = DatagramPacket(buffer, buffer.size)
@@ -272,6 +276,19 @@ class UdpTransport(
                 if (!running) return          // stop() closed the socket; expected
                 if (!awaitNetwork(e)) return
                 continue
+            }
+
+            // Feedback only counts once we hold a slot: anything earlier is a
+            // leftover from a previous session.
+            if (slot != Protocol.NO_PAD) {
+                PacketReader.readRumble(packet.data, packet.length)?.let {
+                    onRumble(it.large, it.small)
+                    continue
+                }
+                PacketReader.readLight(packet.data, packet.length)?.let {
+                    onLight(it.player, it.color)
+                    continue
+                }
             }
 
             val message = PacketReader.readSession(packet.data, packet.length) ?: continue

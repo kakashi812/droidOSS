@@ -19,7 +19,14 @@ internal sealed class PlayerRing : FrameworkElement
         nameof(Lit), typeof(bool), typeof(PlayerRing),
         new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty LitBrushProperty = DependencyProperty.Register(
+        nameof(LitBrush), typeof(Brush), typeof(PlayerRing),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public int Slot { get => (int)GetValue(SlotProperty); set => SetValue(SlotProperty, value); }
+
+    /// <summary>The player's colour. Falls back to the theme's green.</summary>
+    public Brush? LitBrush { get => (Brush?)GetValue(LitBrushProperty); set => SetValue(LitBrushProperty, value); }
 
     /// <summary>On when a phone holds this slot; otherwise all four quarters stay dim.</summary>
     public bool Lit { get => (bool)GetValue(LitProperty); set => SetValue(LitProperty, value); }
@@ -32,7 +39,7 @@ internal sealed class PlayerRing : FrameworkElement
         var centre = new Point(ActualWidth / 2, ActualHeight / 2);
         var radius = size / 2 - 2;
         var dim = new Pen(Res("Border"), 3);
-        var lit = new Pen(Res("Good"), 3.5);
+        var lit = new Pen(LitBrush is SolidColorBrush { Color.A: > 0 } b ? b : Res("Good"), 3.5);
 
         // Quarters clockwise from top-left, as on the controller: 1 TL, 2 TR, 4 BR, 3 BL.
         int[] quarterForSlot = [0, 1, 3, 2];

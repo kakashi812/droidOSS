@@ -194,4 +194,41 @@ class PacketCodecTest {
 
         assertNull(PacketReader.readAnnounce(bytes, bytes.size))
     }
+
+    // ── feedback: RUMBLE and LIGHT, PC to phone ─────────────────────────────
+
+    private fun bytes(hex: String) = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    @Test
+    fun `rumble golden vector decodes`() {
+        // Pad 0, large 200, small 40 -- shared with FeedbackTests.cs and fake_phone.py.
+        val data = bytes("da010500c828")
+        assertEquals(Rumble(0, 200, 40), PacketReader.readRumble(data, data.size))
+    }
+
+    @Test
+    fun `light golden vector decodes`() {
+        // Pad 1, player 2, #E53B3B.
+        val data = bytes("da01070102e53b3b")
+        assertEquals(Light(1, 2, 0xFFE53B3B.toInt()), PacketReader.readLight(data, data.size))
+    }
+
+    @Test
+    fun `rumble, light and welcome are never confused`() {
+        val rumble = bytes("da010500c828")
+        val light = bytes("da01070102e53b3b")
+        val welcome = bytes("da010301")
+
+        assertNull(PacketReader.readLight(rumble, rumble.size))
+        assertNull(PacketReader.readRumble(light, light.size))
+        assertNull(PacketReader.readRumble(welcome, welcome.size))
+        assertNull(PacketReader.readSession(rumble, rumble.size))
+        assertNull(PacketReader.readSession(light, light.size))
+    }
+
+    @Test
+    fun `rumble from another protocol version is rejected`() {
+        val data = bytes("da020500c828")
+        assertNull(PacketReader.readRumble(data, data.size))
+    }
 }

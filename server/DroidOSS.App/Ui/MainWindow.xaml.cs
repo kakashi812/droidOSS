@@ -63,6 +63,7 @@ internal partial class MainWindow : Window
         Theme.Apply(Resources, _dark);
 
         _vm.DeveloperMode = _settings.DeveloperMode;
+        _vm.PadKind = _settings.PadKind;
         _vm.PropertyChanged += OnViewModelChanged;
         _vm.Log.CollectionChanged += OnLogChanged;
         DataContext = _vm;
@@ -90,7 +91,7 @@ internal partial class MainWindow : Window
         {
             try
             {
-                _backend = new ViGEmPadBackend();
+                _backend = new ViGEmPadBackend(_vm.PadKind);
                 _backend.RumbleReceived += OnRumble;
             }
             catch (PadDriverUnavailableException ex)
@@ -178,6 +179,9 @@ internal partial class MainWindow : Window
             foreach (var s in snapshot)
                 if (s.Slot == slot.Slot) match = s;
             slot.Update(match, now);
+
+            if (_host.Feedback.LightOf(slot.Slot) is { } light)
+                slot.SetLight(light.Player, light.Colour, _vm.PadKind);
         }
         _vm.ConnectedCount = snapshot.Count;
 
@@ -235,12 +239,41 @@ internal partial class MainWindow : Window
 
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.PadKind))
+        {
+            ChangePadKind(_vm.PadKind);
+            return;
+        }
+
         if (e.PropertyName != nameof(MainViewModel.DeveloperMode)) return;
 
         _settings.DeveloperMode = _vm.DeveloperMode;
         _settings.Save();
         ApplyRefreshRate();
         if (_vm.DeveloperMode) MakeRoomForDeveloperMode();
+    }
+
+    /// <summary>
+    /// Switch every pad between Xbox 360 and DualShock 4. Connected phones stay
+    /// connected; games see their controllers unplugged and the new kind appear.
+    /// </summary>
+    private void ChangePadKind(PadKind kind)
+    {
+        _settings.PadKind = kind;
+        _settings.Save();
+        if (_backend is null) return;
+
+        try
+        {
+            _backend.SetKind(kind);
+            _vm.AddLog(kind == PadKind.DualShock4
+                ? "Games now see PlayStation 4 controllers."
+                : "Games now see Xbox 360 controllers.");
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _vm.AddLog($"Could not switch controller type: {ex.Message}");
+        }
     }
 
     /// <summary>Tall enough for the live previews and the log together.</summary>

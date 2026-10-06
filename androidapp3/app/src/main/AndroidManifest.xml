@@ -10,6 +10,10 @@
          backs off and recovers instead of killing the transport. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- The game's rumble, played on the phone's motor. A normal permission:
+         granted at install, never asked for. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- The gamepad is useless without Wi-Fi, so say so rather than letting the
          Play listing imply otherwise. -->
     <uses-feature

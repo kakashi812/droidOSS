@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using DroidOSS.Core;
 
@@ -41,8 +41,10 @@ public sealed class UdpSessionListener(SessionManager sessions, int port = Proto
     /// <summary>Datagrams received, including ones that turned out to be junk.</summary>
     public long Received { get; private set; }
 
-    /// <summary>Replies sent — WELCOMEs, mostly.</summary>
-    public long Sent { get; private set; }
+    private long _sent;
+
+    /// <summary>Messages sent: WELCOMEs, and RUMBLE and LIGHT once phones are connected.</summary>
+    public long Sent => Interlocked.Read(ref _sent);
 
     /// <summary>Binds the port. Throws if something else already holds it.</summary>
     public void Bind()
@@ -113,12 +115,35 @@ public sealed class UdpSessionListener(SessionManager sessions, int port = Proto
         try
         {
             _socket.SendTo(data, SocketFlags.None, _senderAddress);
-            Sent++;
+            Interlocked.Increment(ref _sent);
         }
         catch (SocketException)
         {
             // The phone may already be gone — it is a WELCOME, not a promise.
             // If it never arrives the phone re-sends HELLO and we try again.
+        }
+    }
+
+    /// <summary>
+    /// Sends to a connected phone, from this socket — the address and port the
+    /// phone sends from and already listens on, so nothing new needs opening on
+    /// the phone or through a firewall.
+    /// </summary>
+    /// <remarks>
+    /// Called from the feedback loop, a few times a second at most, so the
+    /// endpoint allocation here is not worth avoiding.
+    /// </remarks>
+    public void SendTo(ClientKey client, ReadOnlySpan<byte> data)
+    {
+        if (_disposed) return;
+        try
+        {
+            _socket.SendTo(data, SocketFlags.None, ToEndPoint(client));
+            Interlocked.Increment(ref _sent);
+        }
+        catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+        {
+            // Rumble and light are repeated; a lost one is repaired by the next.
         }
     }
 
@@ -144,6 +169,18 @@ public sealed class UdpSessionListener(SessionManager sessions, int port = Proto
                | address[7];
 
         return new ClientKey(ip, port);
+    }
+
+    /// <summary>
+    /// The reverse of <see cref="ToClientKey"/>. Octets spelled out because
+    /// <see cref="IPAddress(long)"/> reads its argument in memory order, which
+    /// on x86 would send to the address backwards.
+    /// </summary>
+    internal static IPEndPoint ToEndPoint(ClientKey client)
+    {
+        var a = client.Address;
+        var ip = new IPAddress([(byte)(a >> 24), (byte)(a >> 16), (byte)(a >> 8), (byte)a]);
+        return new IPEndPoint(ip, client.Port);
     }
 
     public void Dispose()

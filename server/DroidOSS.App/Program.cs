@@ -28,7 +28,8 @@ internal static class Program
         if (console)
         {
             AttachOrAllocateConsole();
-            return ConsoleMode.RunAsync(demo).GetAwaiter().GetResult();
+            var kind = HasFlag(args, "--ps4") ? DroidOSS.Core.PadKind.DualShock4 : DroidOSS.Core.PadKind.Xbox360;
+            return ConsoleMode.RunAsync(demo, kind).GetAwaiter().GetResult();
         }
 
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };

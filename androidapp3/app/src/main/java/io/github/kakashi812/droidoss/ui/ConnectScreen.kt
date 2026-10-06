@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,7 +34,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,6 +64,7 @@ import io.github.kakashi812.droidoss.layout.MAX_LAYOUTS
 import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
 import io.github.kakashi812.droidoss.transport.DiscoveredServer
+import kotlin.math.roundToInt
 
 private const val REPO_URL = "https://github.com/kakashi812/droidOSS"
 
@@ -84,6 +88,7 @@ fun ConnectScreen(
     onConnect: (host: String, port: Int) -> Unit,
     onDisconnect: () -> Unit,
     layoutActions: LayoutActions,
+    vibration: VibrationControls,
     modifier: Modifier = Modifier,
 ) {
     var host by remember { mutableStateOf(initialHost) }
@@ -191,6 +196,10 @@ fun ConnectScreen(
 
         StatusPanel(connectionState)
 
+        Spacer(Modifier.height(16.dp))
+
+        VibrationPanel(vibration)
+
         Spacer(Modifier.height(24.dp))
 
         LayoutGallery(
@@ -229,6 +238,78 @@ fun ConnectScreen(
             },
             onDismiss = { deletingId = null },
         )
+    }
+}
+
+/** The vibration settings, and what changing them does. */
+class VibrationControls(
+    val available: Boolean,
+    val enabled: Boolean,
+    val strength: Float,
+    val onEnabledChange: (Boolean) -> Unit,
+    val onStrengthChange: (Float) -> Unit,
+    val onTest: () -> Unit,
+)
+
+/**
+ * Vibrate when the game rumbles: a switch, how strong, and a button to feel it.
+ *
+ * The slider matters more than it looks — phone motors range from a polite
+ * tick to something that rattles the table, and the same game rumble has to
+ * feel right on both.
+ */
+@Composable
+private fun VibrationPanel(controls: VibrationControls) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Vibration",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (controls.available) {
+                            "The phone vibrates when the game rumbles the controller."
+                        } else {
+                            "This phone has no vibration motor."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = controls.enabled && controls.available,
+                    onCheckedChange = controls.onEnabledChange,
+                    enabled = controls.available,
+                )
+            }
+
+            if (controls.enabled && controls.available) {
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Strength ${(controls.strength * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.width(112.dp),
+                    )
+                    Slider(
+                        value = controls.strength,
+                        onValueChange = controls.onStrengthChange,
+                        // Test on release, so dragging does not buzz continuously.
+                        onValueChangeFinished = controls.onTest,
+                        valueRange = 0.1f..1f,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = controls.onTest) { Text("Test") }
+                }
+            }
+        }
     }
 }
 

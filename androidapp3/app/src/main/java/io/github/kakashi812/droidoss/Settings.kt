@@ -1,6 +1,7 @@
 package io.github.kakashi812.droidoss
 
 import android.content.Context
+import io.github.kakashi812.droidoss.transport.Rumbler
 
 /**
  * The handful of things worth remembering between sessions.
@@ -26,7 +27,19 @@ class Settings(context: Context) {
         get() = prefs.getString(KEY_HOST, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_HOST, value.trim()).apply()
 
+    /** Vibrate when the game rumbles. On unless turned off. */
+    var vibration: Boolean
+        get() = prefs.getBoolean(KEY_VIBRATION, true)
+        set(value) = prefs.edit().putBoolean(KEY_VIBRATION, value).apply()
+
+    /** How strong a full rumble is on this phone, 0.1–1. */
+    var vibrationStrength: Float
+        get() = prefs.getFloat(KEY_VIBRATION_STRENGTH, Rumbler.DEFAULT_STRENGTH)
+        set(value) = prefs.edit().putFloat(KEY_VIBRATION_STRENGTH, value.coerceIn(0.1f, 1f)).apply()
+
     private companion object {
         const val KEY_HOST = "host"
+        const val KEY_VIBRATION = "vibration"
+        const val KEY_VIBRATION_STRENGTH = "vibration_strength"
     }
 }

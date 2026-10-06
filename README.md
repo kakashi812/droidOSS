@@ -47,7 +47,11 @@ Leave it open — closing it disconnects the controllers. If Windows Firewall pr
 
 **Developer mode** (the switch at the bottom, remembered between runs) adds a live drawing of what each phone is sending — sticks, triggers and buttons — plus packet rates and a log of connections, rumble and dropped packets. Handy for checking a phone works before starting a game.
 
-Prefer text? `droidOSS-server.exe --console` runs the same server in a terminal, as earlier versions did.
+**Games see** (in the top panel) chooses the controller games are shown: **Xbox 360** works with every PC game, and each phone glows along its top edge in its player colour — 1 blue, 2 red, 3 green, 4 pink. **PlayStation 4** passes on the lightbar colour the game or Steam picks, so the phone matches what FIFA or Steam shows; games then show PlayStation buttons, and older games may need Steam Input turned on to see the controller.
+
+When a game rumbles the controller, the phone vibrates. Turn it off, or set its strength, under **Vibration** in the app.
+
+Prefer text? `droidOSS-server.exe --console` runs the same server in a terminal, as earlier versions did (add `--ps4` for PlayStation 4 controllers).
 
 ### 3. Install the app
 
@@ -82,7 +86,8 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 - [x] ~~**The layout can't be customised.**~~ — **Fixed in v0.1.1 (app):** move, resize and save your own controller layouts.
 - [x] **Automatic discovery** — the app lists every server on the Wi-Fi; tap one to connect.
 - [x] **A proper window for the server** — player cards instead of a console, with a developer mode for live input and logs.
-- [ ] **Rumble** — vibration from the game travelling back to the phone.
+- [x] **Rumble** — vibration from the game travelling back to the phone, with a strength slider.
+- [x] **Player colours** — the phone glows in its player colour, or in the exact lightbar colour FIFA or Steam sets when the server shows a PlayStation 4 controller.
 - [ ] **Analog triggers** — gradual travel instead of on/off.
 - [ ] **Windows on ARM** build (currently x64 only).
 
@@ -114,7 +119,7 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 **Server** — needs the [.NET SDK](https://dotnet.microsoft.com/download) 10.0 or newer:
 
 ```bash
-dotnet test server/DroidOSS.sln          # 135 tests
+dotnet test server/DroidOSS.sln          # 164 tests
 dotnet run --project server/DroidOSS.App                 # the window
 dotnet run --project server/DroidOSS.App -- --console    # text mode
 ```

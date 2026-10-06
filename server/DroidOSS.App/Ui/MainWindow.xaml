@@ -67,6 +67,29 @@
             <Setter Property="BorderThickness" Value="1" />
         </Style>
 
+        <!-- One half of a two-way choice. -->
+        <Style x:Key="Segment" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Chrome" CornerRadius="9" Padding="12,5" BorderThickness="1"
+                                Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}">
+                            <ContentPresenter TextElement.FontSize="13" TextElement.FontWeight="SemiBold" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Accent}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentText}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- A switch, for developer mode. -->
         <Style x:Key="Switch" TargetType="CheckBox">
             <Setter Property="Cursor" Value="Hand" />
@@ -109,7 +132,7 @@
 
                     <DockPanel>
                         <ui:PlayerRing DockPanel.Dock="Left" Width="30" Height="30" Margin="0,0,12,0"
-                                       Slot="{Binding Slot}" Lit="{Binding IsConnected}" />
+                                       Slot="{Binding Slot}" Lit="{Binding IsConnected}" LitBrush="{Binding Light}" />
                         <Border x:Name="Badge" DockPanel.Dock="Right" CornerRadius="10" Padding="10,3"
                                 VerticalAlignment="Center" Background="{DynamicResource SurfaceAlt}">
                             <TextBlock x:Name="BadgeText" Text="Empty" FontSize="12" FontWeight="SemiBold"
@@ -134,6 +157,10 @@
                                      VerticalAlignment="Center" />
                             <TextBlock Text="{Binding QualityText}" FontSize="13" Margin="8,0,0,0" />
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Ellipse Width="9" Height="9" Fill="{Binding Light}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding LightText}" FontSize="13" Margin="8,0,0,0" />
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- Developer mode: what the phone is actually sending. -->
@@ -156,7 +183,7 @@
                     <Setter TargetName="Connected" Property="Visibility" Value="Visible" />
                     <Setter TargetName="BadgeText" Property="Text" Value="Connected" />
                     <Setter TargetName="BadgeText" Property="Foreground" Value="{DynamicResource Good}" />
-                    <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource Good}" />
+                    <Setter TargetName="Card" Property="BorderBrush" Value="{Binding Light}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding DataContext.DeveloperMode, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
                     <Setter TargetName="Badge" Property="Visibility" Value="Collapsed" />
@@ -203,7 +230,7 @@
                 </Border>
                 <StackPanel>
                     <TextBlock Text="droidOSS" FontSize="28" FontWeight="Bold" />
-                    <TextBlock Text="Use your phone as an Xbox 360 controller" Style="{StaticResource Muted}" />
+                    <TextBlock Text="Use your phone as a game controller" Style="{StaticResource Muted}" />
                 </StackPanel>
             </DockPanel>
 
@@ -237,6 +264,17 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                    </DockPanel>
+                    <Border Height="1" Background="{DynamicResource Border}" Margin="0,12,0,10" />
+                    <DockPanel>
+                        <TextBlock Text="Games see:" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                                   Margin="0,0,10,0" />
+                        <RadioButton Content="Xbox 360 controller" Style="{StaticResource Segment}"
+                                     GroupName="PadKind" IsChecked="{Binding IsXbox}" />
+                        <RadioButton Content="PlayStation 4 controller" Style="{StaticResource Segment}"
+                                     GroupName="PadKind" IsChecked="{Binding IsDualShock4}" Margin="6,0,0,0" />
+                        <TextBlock Text="{Binding PadKindHint}" Style="{StaticResource Muted}" FontSize="12"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" Margin="14,0,0,0" />
                     </DockPanel>
                 </StackPanel>
             </Border>

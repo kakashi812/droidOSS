@@ -39,6 +39,12 @@ object Protocol {
     /** HELLO, WELCOME and BYE carry no payload — the header says everything. */
     const val SESSION_MESSAGE_SIZE = HEADER_SIZE
 
+    /** RUMBLE: header + large motor + small motor. */
+    const val RUMBLE_SIZE = HEADER_SIZE + 2
+
+    /** LIGHT: header + player number + red, green, blue. */
+    const val LIGHT_SIZE = HEADER_SIZE + 4
+
     /**
      * The `pad` byte when it names no particular slot.
      *
@@ -117,7 +123,10 @@ enum class MessageType(val id: Byte) {
      * "Any servers out there?" Broadcast on [Protocol.DISCOVERY_PORT], answered by
      * each server with a WELCOME announcement — see [PacketReader.readAnnounce].
      */
-    DISCOVER(0x06);
+    DISCOVER(0x06),
+
+    /** Which player this phone is, and the colour to show. PC to phone. See [PacketReader.readLight]. */
+    LIGHT(0x07);
 
     companion object {
         fun fromId(id: Byte): MessageType? = entries.firstOrNull { it.id == id }

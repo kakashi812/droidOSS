@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -37,6 +38,7 @@ import io.github.kakashi812.droidoss.layout.defaultLayout
 import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
 import io.github.kakashi812.droidoss.transport.DiscoveredServer
+import io.github.kakashi812.droidoss.transport.Rumbler
 import io.github.kakashi812.droidoss.transport.ServerDiscovery
 import io.github.kakashi812.droidoss.transport.UdpTransport
 import io.github.kakashi812.droidoss.ui.ConnectScreen
@@ -46,6 +48,7 @@ import io.github.kakashi812.droidoss.ui.LayoutActions
 import io.github.kakashi812.droidoss.ui.LayoutEditorScreen
 import io.github.kakashi812.droidoss.ui.PadScreen
 import io.github.kakashi812.droidoss.ui.QrDialog
+import io.github.kakashi812.droidoss.ui.VibrationControls
 import io.github.kakashi812.droidoss.ui.theme.DroidOSSTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -75,6 +78,17 @@ class MainActivity : ComponentActivity() {
     private var activeId by mutableStateOf("default")
 
     private val settings by lazy { Settings(applicationContext) }
+
+    // The game's rumble and the player light, while connected.
+    private val rumbler by lazy {
+        Rumbler(applicationContext).apply {
+            enabled = settings.vibration
+            strength = settings.vibrationStrength
+        }
+    }
+    private var lightColor by mutableStateOf<Int?>(null)
+    private var vibration by mutableStateOf(true)
+    private var vibrationStrength by mutableStateOf(Rumbler.DEFAULT_STRENGTH)
 
     // Sharing. A layout waiting for the person to confirm its import, the reason
     // the last one was refused, and the layout whose QR code is on screen.
@@ -117,6 +131,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         refreshLayouts()
+        vibration = settings.vibration
+        vibrationStrength = settings.vibrationStrength
 
         // Opened by tapping a shared layout, or sharing one to droidOSS. Only on a
         // fresh start: a recreated activity has already offered this import.
@@ -137,6 +153,7 @@ class MainActivity : ComponentActivity() {
                             transport = transport,
                             layout = activeLayout,
                             modifier = Modifier.fillMaxSize(),
+                            lightColor = lightColor?.let { Color(it) },
                         )
                     }
 
@@ -185,6 +202,22 @@ class MainActivity : ComponentActivity() {
                                 onConnect = ::connect,
                                 onDisconnect = ::disconnect,
                                 layoutActions = layoutActions,
+                                vibration = VibrationControls(
+                                    available = rumbler.available,
+                                    enabled = vibration,
+                                    strength = vibrationStrength,
+                                    onEnabledChange = { on ->
+                                        vibration = on
+                                        settings.vibration = on
+                                        rumbler.enabled = on
+                                    },
+                                    onStrengthChange = { s ->
+                                        vibrationStrength = s
+                                        settings.vibrationStrength = s
+                                        rumbler.strength = s
+                                    },
+                                    onTest = rumbler::test,
+                                ),
                                 modifier = Modifier.padding(innerPadding),
                             )
                         }
@@ -449,6 +482,8 @@ class MainActivity : ComponentActivity() {
                             // written from the main thread.
                             lifecycleScope.launch { connectionState = state }
                         },
+                        onRumble = rumbler::rumble,
+                        onLight = { _, color -> lifecycleScope.launch { lightColor = color } },
                     )
                 }
             }
@@ -470,6 +505,10 @@ class MainActivity : ComponentActivity() {
         // so it must not run on the UI thread.
         lifecycleScope.launch(Dispatchers.IO) { existing.stop() }
         connectionState = ConnectionState.Idle
+
+        // The pulses would end by themselves within half a second; no reason to wait.
+        rumbler.stop()
+        lightColor = null
     }
 
     private companion object {

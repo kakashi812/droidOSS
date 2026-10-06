@@ -62,8 +62,9 @@ byte   0     1     2     3     4-7      8-9     10    11   12-13 14-15 16-17 18-
 | `0x02` HELLO | phone → PC | "I'm here." Server assigns a pad slot and plugs in a virtual pad. |
 | `0x03` WELCOME | PC → phone | "You're pad 2." Also proves a server exists at this address. |
 | `0x04` BYE | phone → PC | Clean exit — unplug now rather than waiting for the timeout. |
-| `0x05` RUMBLE | PC → phone | Vibration intensity from the game. |
+| `0x05` RUMBLE | PC → phone | Vibration intensity from the game — see [Feedback](#feedback). |
 | `0x06` DISCOVER | broadcast | "Any servers out there?" Answered with a WELCOME announcement — see [Discovery](#discovery). |
+| `0x07` LIGHT | PC → phone | Which player the phone is, and the colour to show — see [Feedback](#feedback). |
 
 Non-INPUT messages share the same 4-byte header; their payloads are defined as each is implemented.
 
@@ -90,6 +91,32 @@ byte   0     1    2     3      4-5        6         7          8..
 3. The phone takes the server's **address from the reply's source**, groups replies by address and `inputPort`, and lists every server it found. When several servers share a network, the user picks one.
 
 An announcement is at least 8 bytes long, so it can never be mistaken for the 4-byte session WELCOME that shares its type byte. Golden vector, server `"PC"`, port 27500, 3 pads free: `DA 01 03 FF 6C 6B 03 02 50 43`.
+
+## Feedback
+
+Once connected, the PC sends two kinds of message back to the phone, from the input port to the address and port the phone sends from:
+
+```
+RUMBLE  byte 0     1    2     3    4      5
+            0xDA  ver  0x05  pad  large  small            6 bytes
+
+LIGHT   byte 0     1    2     3    4       5  6  7
+            0xDA  ver  0x07  pad  player  R  G  B         8 bytes
+```
+
+| Field | Meaning |
+|---|---|
+| `pad` | The slot the server gave this phone. Informational. |
+| `large`, `small` | The game's two motors, `0`–`255`: heavy/slow (left) and light/fast (right). Both `0` means stop. |
+| `player` | The player number games show for this pad, `1`–`4`. Not always `pad + 1`: a real controller already plugged in takes player 1. |
+| `R G B` | The colour to show. On an Xbox 360 pad, the player's colour (1 blue `3D7EFF`, 2 red `FF4A4A`, 3 green `3DDC6A`, 4 pink `FF5CCB`). When the server shows a DualShock 4, whatever lightbar colour the game or Steam set. |
+
+Both are **state, not events**, and both are repeated, because UDP can lose any one of them:
+
+- RUMBLE is sent when it changes and then every **250 ms** while either motor runs. A stop is sent **three** times. The phone vibrates for a little longer than 250 ms per RUMBLE, so the motor runs continuously while they keep coming and stops by itself within half a second if they don't — a lost stop, or a server that dies mid-rumble, cannot leave a phone vibrating.
+- LIGHT is sent as soon as the phone connects, whenever it changes, and every **second**.
+
+The phone ignores both until it holds a slot. Golden vectors: RUMBLE pad 0, large 200, small 40 is `DA 01 05 00 C8 28`; LIGHT pad 1, player 2, `#E53B3B` is `DA 01 07 01 02 E5 3B 3B`.
 
 **There is deliberately no heartbeat message.** The input stream *is* the heartbeat — a packet every 8 ms means silence is unmistakable.
 

@@ -67,6 +67,7 @@ MSG_WELCOME = 0x03
 MSG_BYE = 0x04
 MSG_RUMBLE = 0x05
 MSG_DISCOVER = 0x06
+MSG_LIGHT = 0x07
 
 # magic, version, type, pad | sequence | buttons, LT, RT | LX, LY, RX, RY
 #
@@ -266,6 +267,40 @@ GOLDEN_DISCOVER_HEX = "da0106ff"
 GOLDEN_ANNOUNCE_HEX = "da0103ff6c6b03025043"
 
 
+# ---------------------------------------------------------------------------
+# Feedback -- RUMBLE and LIGHT travel PC -> phone once connected:
+#
+#   RUMBLE  DA 01 05 pad  large small          6 bytes
+#   LIGHT   DA 01 07 pad  player R G B         8 bytes
+#
+# Both are state, repeated by the server, matching DroidOSS.Core.FeedbackMessage.
+# ---------------------------------------------------------------------------
+
+def encode_rumble(pad: int, large: int, small: int) -> bytes:
+    return bytes([MAGIC_BYTE, VERSION, MSG_RUMBLE, pad, large, small])
+
+
+def decode_rumble(data: bytes) -> dict | None:
+    if len(data) != 6 or data[0] != MAGIC_BYTE or data[1] != VERSION or data[2] != MSG_RUMBLE:
+        return None
+    return {"pad": data[3], "large": data[4], "small": data[5]}
+
+
+def encode_light(pad: int, player: int, rgb: tuple[int, int, int]) -> bytes:
+    return bytes([MAGIC_BYTE, VERSION, MSG_LIGHT, pad, player, *rgb])
+
+
+def decode_light(data: bytes) -> dict | None:
+    if len(data) != 8 or data[0] != MAGIC_BYTE or data[1] != VERSION or data[2] != MSG_LIGHT:
+        return None
+    return {"pad": data[3], "player": data[4], "rgb": (data[5], data[6], data[7])}
+
+
+# Golden feedback vectors, shared with FeedbackTests.cs and PacketCodecTest.kt.
+GOLDEN_RUMBLE_HEX = "da010500c828"      # pad 0, large 200, small 40
+GOLDEN_LIGHT_HEX = "da01070102e53b3b"   # pad 1, player 2, #E53B3B
+
+
 def golden_packet() -> bytes:
     return encode_input(
         pad=GOLDEN_PAD,
@@ -368,6 +403,17 @@ def run_selftest() -> int:
     print(f"    DISCOVER       {discover}{'' if discover == GOLDEN_DISCOVER_HEX else '  <- FAIL'}")
     print(f"    announce \"PC\"  {announce}{'' if announce == GOLDEN_ANNOUNCE_HEX else '  <- FAIL'}")
     print()
+
+    rumble = encode_rumble(0, 200, 40).hex()
+    light = encode_light(1, 2, (0xE5, 0x3B, 0x3B)).hex()
+    print("  feedback:")
+    print(f"    RUMBLE         {rumble}{'' if rumble == GOLDEN_RUMBLE_HEX else '  <- FAIL'}")
+    print(f"    LIGHT          {light}{'' if light == GOLDEN_LIGHT_HEX else '  <- FAIL'}")
+    if rumble != GOLDEN_RUMBLE_HEX or light != GOLDEN_LIGHT_HEX:
+        ok = False
+    if decode_rumble(bytes.fromhex(GOLDEN_LIGHT_HEX)) is not None or decode_light(bytes.fromhex(GOLDEN_RUMBLE_HEX)) is not None:
+        print("  FAIL: RUMBLE and LIGHT were confused for each other")
+        ok = False
 
     if discover != GOLDEN_DISCOVER_HEX or announce != GOLDEN_ANNOUNCE_HEX:
         ok = False
@@ -497,6 +543,12 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
     print("Press Ctrl+C to stop.")
     print()
 
+    # What the server sends back -- RUMBLE and LIGHT -- is read between sends
+    # without ever blocking the 8 ms cadence, and printed when it changes.
+    sock.setblocking(False)
+    last_rumble = None
+    last_light = None
+
     try:
         while True:
             now = time.perf_counter()
@@ -522,6 +574,21 @@ def run_sender(host: str, port: int, pad: int, rate: float, duration: float | No
 
             sequence += 1
             sent += 1
+
+            while True:
+                try:
+                    data, _ = sock.recvfrom(64)
+                except (BlockingIOError, ConnectionResetError):
+                    break
+                rumble = decode_rumble(data)
+                if rumble is not None and (rumble["large"], rumble["small"]) != last_rumble:
+                    last_rumble = (rumble["large"], rumble["small"])
+                    print(f"  RUMBLE  large={rumble['large']:3}  small={rumble['small']:3}")
+                light = decode_light(data)
+                if light is not None and (light["player"], light["rgb"]) != last_light:
+                    last_light = (light["player"], light["rgb"])
+                    r, g, b = light["rgb"]
+                    print(f"  LIGHT   player {light['player']}  colour #{r:02X}{g:02X}{b:02X}")
 
             if now - last_report >= 1.0:
                 measured = sent / elapsed

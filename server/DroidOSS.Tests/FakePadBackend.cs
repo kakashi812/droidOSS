@@ -1,4 +1,4 @@
-using DroidOSS.Core;
+﻿using DroidOSS.Core;
 
 namespace DroidOSS.Tests;
 
@@ -39,6 +39,8 @@ public sealed class FakePadBackend : IPadBackend
 
     public event EventHandler<RumbleEventArgs>? RumbleReceived;
 
+    public event EventHandler<LightEventArgs>? LightChanged;
+
     /// <summary>The most recent state handed to the driver.</summary>
     public PadState LastSubmitted =>
         Submissions.Count == 0 ? PadState.Neutral : Submissions[^1].State;
@@ -66,6 +68,10 @@ public sealed class FakePadBackend : IPadBackend
     /// <summary>Lets a test pretend a game asked for vibration.</summary>
     public void RaiseRumble(int slot, byte large, byte small) =>
         RumbleReceived?.Invoke(this, new RumbleEventArgs(slot, large, small));
+
+    /// <summary>Lets a test pretend the driver or a game set a pad's light.</summary>
+    public void RaiseLight(int slot, byte player, Rgb colour) =>
+        LightChanged?.Invoke(this, new LightEventArgs(slot, player, colour));
 
     /// <summary>Every state submitted to one slot, in order.</summary>
     public List<PadState> SubmissionsTo(int slot) =>

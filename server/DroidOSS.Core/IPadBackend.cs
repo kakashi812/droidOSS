@@ -1,4 +1,4 @@
-namespace DroidOSS.Core;
+﻿namespace DroidOSS.Core;
 
 /// <summary>
 /// Somewhere to send gamepad state that makes a controller appear to Windows.
@@ -55,4 +55,16 @@ public interface IPadBackend : IDisposable
     /// Fires on a driver thread, not the caller's.
     /// </remarks>
     event EventHandler<RumbleEventArgs>? RumbleReceived;
+
+    /// <summary>
+    /// Raised when a pad learns its player number, or its light changes colour.
+    /// </summary>
+    /// <remarks>
+    /// An Xbox 360 pad has no colour, only a player number, which the driver
+    /// assigns when the pad is plugged in; the colour is then that player's
+    /// from <see cref="PlayerColors"/>. A DualShock 4 has a lightbar that games
+    /// and Steam set to any colour, and that colour is reported as it is.
+    /// Fires on a driver thread, not the caller's.
+    /// </remarks>
+    event EventHandler<LightEventArgs>? LightChanged;
 }

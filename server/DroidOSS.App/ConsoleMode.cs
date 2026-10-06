@@ -20,7 +20,7 @@ internal static class ConsoleMode
     /// <summary>The pad <c>--demo</c> drives. Real sessions are assigned slots by the server.</summary>
     private const int DemoSlot = 0;
 
-    public static async Task<int> RunAsync(bool demo)
+    public static async Task<int> RunAsync(bool demo, PadKind kind = PadKind.Xbox360)
     {
         Console.WriteLine("droidOSS server");
         Console.WriteLine();
@@ -28,7 +28,7 @@ internal static class ConsoleMode
         ViGEmPadBackend backend;
         try
         {
-            backend = new ViGEmPadBackend();
+            backend = new ViGEmPadBackend(kind);
         }
         catch (PadDriverUnavailableException ex)
         {

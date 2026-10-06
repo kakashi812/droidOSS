@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Windows.Media;
 using DroidOSS.Core;
 
 namespace DroidOSS.App.Ui;
@@ -47,8 +48,31 @@ internal sealed class SlotViewModel(int slot) : ObservableObject
     private string _packetsText = "";
     private string _rumbleText = "";
     private PadState _state;
+    private Brush _light = Brushes.Transparent;
+    private string _lightText = "";
+    private (byte, Rgb, PadKind)? _lastLight;
 
     public int Slot { get; } = slot;
+
+    /// <summary>The colour the phone shows: the player's, or the game's lightbar.</summary>
+    public Brush Light { get => _light; private set => Set(ref _light, value); }
+
+    /// <summary>"Player 2 in games", or the lightbar colour on a DualShock 4.</summary>
+    public string LightText { get => _lightText; private set => Set(ref _lightText, value); }
+
+    /// <summary>Show what the phone in this slot is being told about its light.</summary>
+    public void SetLight(byte player, Rgb colour, PadKind kind)
+    {
+        if (_lastLight == (player, colour, kind)) return;
+        _lastLight = (player, colour, kind);
+
+        var brush = new SolidColorBrush(Color.FromRgb(colour.R, colour.G, colour.B));
+        brush.Freeze();
+        Light = brush;
+        LightText = kind == PadKind.DualShock4
+            ? $"Lightbar {colour}"
+            : $"Player {player} in games";
+    }
 
     /// <summary>Player numbers start at 1, as on the phone and on an Xbox.</summary>
     public string Title => $"Player {Slot + 1}";
@@ -139,6 +163,7 @@ internal sealed class MainViewModel : ObservableObject
     private bool _developerMode;
     private string _errorDetails = "";
     private string _droppedText = "";
+    private PadKind _padKind;
 
     public SlotViewModel[] Slots { get; } =
         Enumerable.Range(0, IPadBackend.MaxPads).Select(i => new SlotViewModel(i)).ToArray();
@@ -194,6 +219,28 @@ internal sealed class MainViewModel : ObservableObject
     };
 
     public bool DeveloperMode { get => _developerMode; set => Set(ref _developerMode, value); }
+
+    /// <summary>Which controller games see.</summary>
+    public PadKind PadKind
+    {
+        get => _padKind;
+        set
+        {
+            if (!Set(ref _padKind, value)) return;
+            Raise(nameof(IsXbox));
+            Raise(nameof(IsDualShock4));
+            Raise(nameof(PadKindHint));
+        }
+    }
+
+    // Two-way bindings for the pair of radio buttons.
+    public bool IsXbox { get => PadKind == PadKind.Xbox360; set { if (value) PadKind = PadKind.Xbox360; } }
+    public bool IsDualShock4 { get => PadKind == PadKind.DualShock4; set { if (value) PadKind = PadKind.DualShock4; } }
+
+    public string PadKindHint => PadKind == PadKind.DualShock4
+        ? "Phones show the lightbar colour the game or Steam sets. Games show PlayStation buttons; " +
+          "older games may need Steam Input on to see it."
+        : "Works with every PC game. Phones show their player colour: 1 blue, 2 red, 3 green, 4 pink.";
 
     /// <summary>Dropped-packet counters, shown above the log.</summary>
     public string DroppedText { get => _droppedText; set => Set(ref _droppedText, value); }

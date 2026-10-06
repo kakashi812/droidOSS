@@ -126,7 +126,7 @@ public enum MessageType : byte
     /// <summary>Clean exit. Phone to PC, so the pad unplugs now rather than on timeout.</summary>
     Bye = 0x04,
 
-    /// <summary>Vibration intensity from the game. PC to phone.</summary>
+    /// <summary>Vibration intensity from the game. PC to phone. See <see cref="FeedbackMessage"/>.</summary>
     Rumble = 0x05,
 
     /// <summary>
@@ -134,4 +134,10 @@ public enum MessageType : byte
     /// <see cref="Welcome"/> announcement — see <see cref="DiscoveryMessage"/>.
     /// </summary>
     Discover = 0x06,
+
+    /// <summary>
+    /// Which player the phone is, and the colour to show for it. PC to phone.
+    /// See <see cref="FeedbackMessage"/>.
+    /// </summary>
+    Light = 0x07,
 }

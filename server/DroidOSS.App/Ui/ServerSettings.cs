@@ -1,5 +1,7 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DroidOSS.Core;
 
 namespace DroidOSS.App.Ui;
 
@@ -13,6 +15,10 @@ namespace DroidOSS.App.Ui;
 internal sealed class ServerSettings
 {
     public bool DeveloperMode { get; set; }
+
+    /// <summary>Which controller games see. Written as its name, so the file stays readable.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<PadKind>))]
+    public PadKind PadKind { get; set; } = PadKind.Xbox360;
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "droidOSS", "server.json");

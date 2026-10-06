@@ -15,3 +15,17 @@ public sealed class RumbleEventArgs(int slot, byte largeMotor, byte smallMotor) 
     public byte LargeMotor { get; } = largeMotor;
     public byte SmallMotor { get; } = smallMotor;
 }
+
+/// <summary>
+/// Which player a pad is, and what colour its light should be — as the
+/// driver, the game or Steam last set it.
+/// </summary>
+/// <param name="slot">Which pad.</param>
+/// <param name="player">The player number games show, 1–4.</param>
+/// <param name="colour">The colour to show for it on the phone.</param>
+public sealed class LightEventArgs(int slot, byte player, Rgb colour) : EventArgs
+{
+    public int Slot { get; } = slot;
+    public byte Player { get; } = player;
+    public Rgb Colour { get; } = colour;
+}

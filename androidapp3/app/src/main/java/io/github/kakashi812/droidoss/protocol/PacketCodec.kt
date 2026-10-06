@@ -89,6 +89,12 @@ data class SessionMessage(val type: MessageType, val pad: Byte)
  */
 data class Announcement(val name: String, val inputPort: Int, val freePads: Int)
 
+/** What the game wants the motors doing: each 0–255, heavy (`large`) and light (`small`). */
+data class Rumble(val pad: Byte, val large: Int, val small: Int)
+
+/** Which player the game shows this phone as, and its colour as `0xFFRRGGBB`. */
+data class Light(val pad: Byte, val player: Int, val color: Int)
+
 /**
  * Reads the messages that travel PC → phone.
  *
@@ -119,6 +125,42 @@ object PacketReader {
 
         return SessionMessage(type, data[Protocol.Offset.PAD])
     }
+
+    /**
+     * Parses a RUMBLE: `DA ver 05 pad large small`, six bytes.
+     *
+     * State, not an event — the server repeats it while the game keeps asking.
+     */
+    fun readRumble(data: ByteArray, length: Int): Rumble? {
+        if (!hasHeader(data, length, MessageType.RUMBLE, Protocol.RUMBLE_SIZE)) return null
+        val at = Protocol.HEADER_SIZE
+        return Rumble(data[Protocol.Offset.PAD], data[at].toInt() and 0xFF, data[at + 1].toInt() and 0xFF)
+    }
+
+    /**
+     * Parses a LIGHT: `DA ver 07 pad player R G B`, eight bytes.
+     *
+     * The colour is the player's own on an Xbox pad, or whatever the game or
+     * Steam set the lightbar to when the server is showing a DualShock 4.
+     */
+    fun readLight(data: ByteArray, length: Int): Light? {
+        if (!hasHeader(data, length, MessageType.LIGHT, Protocol.LIGHT_SIZE)) return null
+        val at = Protocol.HEADER_SIZE
+        val r = data[at + 1].toInt() and 0xFF
+        val g = data[at + 2].toInt() and 0xFF
+        val b = data[at + 3].toInt() and 0xFF
+        return Light(
+            pad = data[Protocol.Offset.PAD],
+            player = data[at].toInt() and 0xFF,
+            color = (0xFF shl 24) or (r shl 16) or (g shl 8) or b,
+        )
+    }
+
+    private fun hasHeader(data: ByteArray, length: Int, type: MessageType, size: Int): Boolean =
+        length == size &&
+            data[Protocol.Offset.MAGIC] == Protocol.MAGIC_BYTE &&
+            data[Protocol.Offset.VERSION] == Protocol.VERSION &&
+            data[Protocol.Offset.TYPE] == type.id
 
     /**
      * Parses the announcement a server sends in answer to DISCOVER:

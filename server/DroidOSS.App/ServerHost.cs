@@ -15,22 +15,41 @@ namespace DroidOSS.App;
 ///
 /// Owns the sockets but not the pad backend, which is created first and outlives
 /// a failed start: a "port in use" error can be retried without re-plugging the
-/// driver connection.
+/// driver connection. So everything subscribed to the backend here is
+/// unsubscribed again in <see cref="Dispose"/>.
+///
+/// Also carries what games send back — rumble, and the player light — to each
+/// phone, through <see cref="Feedback"/>.
 /// </remarks>
 public sealed class ServerHost : IDisposable
 {
+    /// <summary>How often due RUMBLE and LIGHT messages are sent.</summary>
+    private static readonly TimeSpan FeedbackInterval = TimeSpan.FromMilliseconds(50);
+
+    private readonly IPadBackend _backend;
     private readonly UdpSessionListener _listener;
     private readonly DiscoveryResponder _discovery;
     private bool _disposed;
 
     public ServerHost(IPadBackend backend, string serverName)
     {
+        _backend = backend;
         Sessions = new SessionManager(backend);
         _listener = new UdpSessionListener(Sessions);
         _discovery = new DiscoveryResponder(Sessions, serverName);
+
+        // The driver may report a pad's light before the session that owns it
+        // exists, so subscribe before any phone can connect.
+        backend.RumbleReceived += OnRumble;
+        backend.LightChanged += OnLight;
+        Sessions.SessionOpened += OnSessionOpened;
+        Sessions.SessionClosed += OnSessionClosed;
     }
 
     public SessionManager Sessions { get; }
+
+    /// <summary>What each phone is due to be told about rumble and its light.</summary>
+    public FeedbackScheduler Feedback { get; } = new();
 
     /// <summary>The name phones see in their server list.</summary>
     public string ServerName => _discovery.ServerName;
@@ -79,7 +98,8 @@ public sealed class ServerHost : IDisposable
         await Task.WhenAll(
             _listener.ListenAsync(cancellationToken),
             Discoverable ? _discovery.ListenAsync(cancellationToken) : Task.CompletedTask,
-            SweepAsync(cancellationToken));
+            SweepAsync(cancellationToken),
+            FeedbackAsync(cancellationToken));
 
         // Every remaining session is zeroed and unplugged, in that order — the
         // manager owns that ordering so it cannot be got wrong here.
@@ -109,6 +129,41 @@ public sealed class ServerHost : IDisposable
             // Shutting down, expected.
         }
     }
+
+    /// <summary>Sends each phone the RUMBLE and LIGHT the scheduler says are due.</summary>
+    private async Task FeedbackAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(FeedbackInterval);
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                var due = Feedback.Collect();
+                if (due.Count == 0) continue;
+
+                var sessions = Sessions.Snapshot();
+                foreach (var message in due)
+                    foreach (var session in sessions)
+                        if (session.Slot == message.Slot)
+                            _listener.SendTo(session.Client, message.Message);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutting down, expected.
+        }
+    }
+
+    private void OnRumble(object? sender, RumbleEventArgs e) =>
+        Feedback.SetRumble(e.Slot, e.LargeMotor, e.SmallMotor);
+
+    private void OnLight(object? sender, LightEventArgs e) =>
+        Feedback.SetLight(e.Slot, e.Player, e.Colour);
+
+    private void OnSessionOpened(object? sender, SessionEventArgs e) => Feedback.SessionOpened(e.Slot);
+
+    private void OnSessionClosed(object? sender, SessionEventArgs e) => Feedback.SessionClosed(e.Slot);
 
     /// <summary>
     /// This machine's LAN addresses — what gets typed into the phone.
@@ -148,6 +203,8 @@ public sealed class ServerHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _backend.RumbleReceived -= OnRumble;
+        _backend.LightChanged -= OnLight;
         _listener.Dispose();
         _discovery.Dispose();
     }
