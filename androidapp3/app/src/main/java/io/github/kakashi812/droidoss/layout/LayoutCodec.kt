@@ -4,13 +4,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * Everything persisted about layouts: the three custom slots and which layout is
+ * Everything persisted about layouts: the custom layouts and which layout is
  * currently selected. The Default layout is *not* stored — it is regenerated from
- * [defaultLayout] every launch, so it is always pristine and is the reset baseline
- * for the custom slots.
+ * [defaultLayout] every launch, so it is always pristine and is the starting
+ * point for every new layout.
  *
- * [version] exists so a future format change (gyro controls, analog trigger
- * travel) can be migrated rather than silently misread.
+ * [version] exists so a format change can be migrated rather than silently
+ * misread. Version 1 always held exactly three slots, `custom1`…`custom3`;
+ * version 2 holds anywhere from none to [MAX_CUSTOM]. A version 1 file is read
+ * as-is — its three slots simply become three of the up-to-nine.
  */
 @Serializable
 data class LayoutStoreData(
@@ -19,11 +21,20 @@ data class LayoutStoreData(
     val custom: List<ControllerLayout> = emptyList(),
 ) {
     companion object {
-        const val CURRENT_VERSION = 1
+        const val CURRENT_VERSION = 2
     }
 }
 
 const val DEFAULT_ID = "default"
+
+/** Layouts in total, Default included. */
+const val MAX_LAYOUTS = 10
+
+/** Custom layouts, beside the always-present Default. */
+const val MAX_CUSTOM = MAX_LAYOUTS - 1
+
+/** Longest layout name kept, in characters. Long enough for a game title. */
+const val MAX_NAME_LENGTH = 32
 
 /**
  * Pure JSON encode/decode for the layout store, with **no Android dependency** so
@@ -36,13 +47,6 @@ const val DEFAULT_ID = "default"
  */
 object LayoutCodec {
 
-    /** The three custom slots, in gallery order: stable id to seed name. */
-    val CUSTOM_SLOTS: List<Pair<String, String>> = listOf(
-        "custom1" to "Custom 1",
-        "custom2" to "Custom 2",
-        "custom3" to "Custom 3",
-    )
-
     private val json = Json {
         // A field added in a later version must not break a file written now.
         ignoreUnknownKeys = true
@@ -51,19 +55,15 @@ object LayoutCodec {
         prettyPrint = true
     }
 
-    /** Fresh state: each custom slot is a copy of the default; Default is active. */
-    fun defaults(): LayoutStoreData = LayoutStoreData(
-        version = LayoutStoreData.CURRENT_VERSION,
-        activeId = DEFAULT_ID,
-        custom = CUSTOM_SLOTS.map { (id, name) -> defaultLayout().copy(id = id, name = name) },
-    )
+    /** Fresh state: just Default, which is active. Custom layouts are made on demand. */
+    fun defaults(): LayoutStoreData = LayoutStoreData()
 
     fun encode(data: LayoutStoreData): String = json.encodeToString(data)
 
     /**
      * Decode, tolerating anything. Structurally valid input is [repair]ed so the
-     * three expected slots always exist and [activeId] always points at a real
-     * layout; anything unparseable falls back to [defaults].
+     * custom list is always usable and [LayoutStoreData.activeId] always points
+     * at a real layout; anything unparseable falls back to [defaults].
      */
     fun decode(text: String): LayoutStoreData =
         runCatching { json.decodeFromString<LayoutStoreData>(text) }
@@ -72,19 +72,46 @@ object LayoutCodec {
             ?: defaults()
 
     /**
-     * Guarantee exactly the three canonical custom slots, preserving any present
-     * in the file (so edits and renames survive) and seeding any that are missing.
-     * Also coerce an [activeId] that names no existing layout back to Default.
+     * The first `customN` id not already taken. Ids are stable — renaming never
+     * changes one — and readable in the file, which helps anyone debugging it.
+     */
+    fun newId(existing: Collection<String>): String =
+        generateSequence(1) { it + 1 }
+            .map { "custom$it" }
+            .first { it !in existing }
+
+    /**
+     * [base] if no layout already uses it, otherwise "base (2)", "base (3)"…
+     * so an import or a duplicate is never indistinguishable from what was there.
+     */
+    fun uniqueName(base: String, existing: Collection<String>): String {
+        val taken = existing.map { it.lowercase() }.toSet()
+        if (base.lowercase() !in taken) return base
+        return generateSequence(2) { it + 1 }
+            .map { "$base ($it)" }
+            .first { it.lowercase() !in taken }
+    }
+
+    /**
+     * Make whatever was read usable: drop anything claiming Default's id or
+     * repeating an earlier id, keep at most [MAX_CUSTOM], give a blank name a
+     * real one, and coerce an [LayoutStoreData.activeId] that names no layout
+     * back to Default.
      */
     private fun repair(data: LayoutStoreData): LayoutStoreData {
-        val byId = data.custom.associateBy { it.id }
-        val custom = CUSTOM_SLOTS.map { (id, name) ->
-            byId[id] ?: defaultLayout().copy(id = id, name = name)
-        }
+        val seen = mutableSetOf(DEFAULT_ID)
+        val custom = data.custom
+            .filter { it.id.isNotBlank() && seen.add(it.id) }
+            .take(MAX_CUSTOM)
+            .mapIndexed { index, layout ->
+                val name = layout.name.trim().take(MAX_NAME_LENGTH)
+                layout.copy(name = name.ifEmpty { "Custom ${index + 1}" })
+            }
         val activeValid = data.activeId == DEFAULT_ID || custom.any { it.id == data.activeId }
-        return data.copy(
-            custom = custom,
+        return LayoutStoreData(
+            version = LayoutStoreData.CURRENT_VERSION,
             activeId = if (activeValid) data.activeId else DEFAULT_ID,
+            custom = custom,
         )
     }
 }

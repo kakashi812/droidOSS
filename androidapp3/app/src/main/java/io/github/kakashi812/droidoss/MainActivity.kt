@@ -1,12 +1,17 @@
 package io.github.kakashi812.droidoss
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -20,8 +25,14 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import io.github.kakashi812.droidoss.layout.ControllerLayout
+import io.github.kakashi812.droidoss.layout.ImportResult
+import io.github.kakashi812.droidoss.layout.LayoutShare
 import io.github.kakashi812.droidoss.layout.LayoutStore
+import io.github.kakashi812.droidoss.layout.LayoutTransfer
+import io.github.kakashi812.droidoss.layout.MAX_LAYOUTS
 import io.github.kakashi812.droidoss.layout.defaultLayout
 import io.github.kakashi812.droidoss.protocol.Protocol
 import io.github.kakashi812.droidoss.transport.ConnectionState
@@ -29,8 +40,12 @@ import io.github.kakashi812.droidoss.transport.DiscoveredServer
 import io.github.kakashi812.droidoss.transport.ServerDiscovery
 import io.github.kakashi812.droidoss.transport.UdpTransport
 import io.github.kakashi812.droidoss.ui.ConnectScreen
+import io.github.kakashi812.droidoss.ui.ImportDialog
+import io.github.kakashi812.droidoss.ui.ImportErrorDialog
+import io.github.kakashi812.droidoss.ui.LayoutActions
 import io.github.kakashi812.droidoss.ui.LayoutEditorScreen
 import io.github.kakashi812.droidoss.ui.PadScreen
+import io.github.kakashi812.droidoss.ui.QrDialog
 import io.github.kakashi812.droidoss.ui.theme.DroidOSSTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,11 +70,42 @@ class MainActivity : ComponentActivity() {
 
     // The gallery's data, mirrored into Compose state so a Use / rename / save
     // repaints the cards. `store` is the source of truth on disk.
-    private val store by lazy { LayoutStore(applicationContext) }
+    private val store by lazy { LayoutStore.get(applicationContext) }
     private var layouts by mutableStateOf<List<ControllerLayout>>(emptyList())
     private var activeId by mutableStateOf("default")
 
     private val settings by lazy { Settings(applicationContext) }
+
+    // Sharing. A layout waiting for the person to confirm its import, the reason
+    // the last one was refused, and the layout whose QR code is on screen.
+    private var pendingImport by mutableStateOf<ImportResult.Ok?>(null)
+    private var importError by mutableStateOf<String?>(null)
+    private var qrLayout by mutableStateOf<ControllerLayout?>(null)
+
+    // Which layout "Save to file" is writing, while the system save dialog is up.
+    private var savingId: String? = null
+
+    private val openDocument =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let(::importFrom)
+        }
+
+    private val createDocument =
+        registerForActivityResult(ActivityResultContracts.CreateDocument(LayoutTransfer.MIME_TYPE)) { uri ->
+            val id = savingId
+            savingId = null
+            if (uri == null || id == null) return@registerForActivityResult
+            val layout = store.layout(id)
+            lifecycleScope.launch {
+                val saved = withContext(Dispatchers.IO) { LayoutTransfer.writeTo(applicationContext, uri, layout) }
+                toast(if (saved) "Saved \"${layout.name}\"" else "Couldn't save the file")
+            }
+        }
+
+    private val scanQr = registerForActivityResult(ScanContract()) { result ->
+        // Null when the scanner was backed out of, or camera permission refused.
+        result.contents?.let { onIncoming(LayoutShare.decode(it)) }
+    }
 
     // Servers that answered the last discovery scan, and whether one is running.
     private var servers by mutableStateOf<List<DiscoveredServer>>(emptyList())
@@ -70,8 +116,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        layouts = store.layouts()
-        activeId = store.activeId
+        refreshLayouts()
+
+        // Opened by tapping a shared layout, or sharing one to droidOSS. Only on a
+        // fresh start: a recreated activity has already offered this import.
+        if (savedInstanceState == null) importFrom(intent)
 
         setContent {
             DroidOSSTheme {
@@ -135,16 +184,52 @@ class MainActivity : ComponentActivity() {
                                 activeId = activeId,
                                 onConnect = ::connect,
                                 onDisconnect = ::disconnect,
-                                onUse = ::useLayout,
-                                onEdit = { editingId = it },
-                                onView = { viewingId = it },
-                                onRename = ::renameLayout,
+                                layoutActions = layoutActions,
                                 modifier = Modifier.padding(innerPadding),
                             )
                         }
                     }
                 }
+
+                SharingDialogs()
             }
+        }
+    }
+
+    @Composable
+    private fun SharingDialogs() {
+        pendingImport?.let { incoming ->
+            ImportDialog(
+                name = incoming.name,
+                controls = incoming.elements.size,
+                hasRoom = store.hasRoom,
+                replaceable = layouts.drop(1),
+                onAdd = {
+                    pendingImport = null
+                    val id = store.add(incoming.name, incoming.elements)
+                    refreshLayouts()
+                    if (id != null) toast("Imported \"${store.layout(id).name}\"")
+                },
+                onReplace = { id ->
+                    pendingImport = null
+                    store.replace(id, incoming.name, incoming.elements)
+                    refreshLayouts()
+                    toast("Imported \"${store.layout(id).name}\"")
+                },
+                onDismiss = { pendingImport = null },
+            )
+        }
+
+        importError?.let { message ->
+            ImportErrorDialog(message = message, onDismiss = { importError = null })
+        }
+
+        qrLayout?.let { layout ->
+            QrDialog(
+                layout = layout,
+                payload = LayoutShare.encodeQr(layout),
+                onDismiss = { qrLayout = null },
+            )
         }
     }
 
@@ -198,7 +283,16 @@ class MainActivity : ComponentActivity() {
      */
     override fun onResume() {
         super.onResume()
+        // Another MainActivity — opened from a shared file in another app's
+        // task — may have changed the layouts while this one was away.
+        refreshLayouts()
         scanForServers()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        importFrom(intent)
     }
 
     /**
@@ -254,14 +348,76 @@ class MainActivity : ComponentActivity() {
             .distinctBy { "${it.host}:${it.port}" }
             .sortedBy { it.name.lowercase() }
 
-    private fun useLayout(id: String) {
-        store.setActive(id)
+    private val layoutActions = LayoutActions(
+        use = { id ->
+            store.setActive(id)
+            refreshLayouts()
+        },
+        edit = { editingId = it },
+        view = { viewingId = it },
+        rename = { id, name ->
+            store.rename(id, name)
+            refreshLayouts()
+        },
+        duplicate = { id ->
+            if (store.duplicate(id) == null) toast(FULL_MESSAGE)
+            refreshLayouts()
+        },
+        delete = { id ->
+            store.delete(id)
+            refreshLayouts()
+        },
+        share = { id ->
+            try {
+                startActivity(LayoutTransfer.shareIntent(this, store.layout(id)))
+            } catch (_: ActivityNotFoundException) {
+                toast("No app on this phone can share files")
+            }
+        },
+        saveToFile = { id ->
+            savingId = id
+            createDocument.launch(LayoutShare.fileName(store.layout(id)))
+        },
+        showQr = { qrLayout = store.layout(it) },
+        importFile = { openDocument.launch(LayoutTransfer.PICKER_TYPES) },
+        scanQr = {
+            scanQr.launch(
+                ScanOptions()
+                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setPrompt("Point at the QR code on the other phone")
+                    .setBeepEnabled(false)
+                    .setOrientationLocked(false),
+            )
+        },
+    )
+
+    private fun refreshLayouts() {
+        layouts = store.layouts()
         activeId = store.activeId
     }
 
-    private fun renameLayout(id: String, name: String) {
-        store.rename(id, name)
-        layouts = store.layouts()
+    /** A layout file handed over by another app, if [intent] carries one. */
+    private fun importFrom(intent: Intent?) {
+        LayoutTransfer.incomingUri(intent)?.let(::importFrom)
+    }
+
+    private fun importFrom(uri: Uri) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { LayoutTransfer.read(applicationContext, uri) }
+            onIncoming(result)
+        }
+    }
+
+    /** Ask before adding a layout someone sent, or say why it can't be used. */
+    private fun onIncoming(result: ImportResult) {
+        when (result) {
+            is ImportResult.Ok -> pendingImport = result
+            is ImportResult.Invalid -> importError = result.message
+        }
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun connect(host: String, port: Int = Protocol.INPUT_PORT) {
@@ -322,5 +478,7 @@ class MainActivity : ComponentActivity() {
 
         /** Breather between back-to-back scans. */
         const val SCAN_GAP_MS = 100L
+
+        const val FULL_MESSAGE = "You already have $MAX_LAYOUTS layouts. Delete one to make room."
     }
 }
