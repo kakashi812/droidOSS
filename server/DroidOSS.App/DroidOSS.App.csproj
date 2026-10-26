@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DroidOSS.Core\DroidOSS.Core.csproj" />
+    <ProjectReference Include="..\DroidOSS.Net\DroidOSS.Net.csproj" />
     <ProjectReference Include="..\DroidOSS.ViGEm\DroidOSS.ViGEm.csproj" />
   </ItemGroup>
 
