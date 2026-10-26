@@ -1,0 +1,88 @@
+# Builds exactly what a release ships: the self-contained server .exe on Windows
+# and the Android APK. Also runs nightly, so a toolchain or runner-image change
+# that breaks a build is noticed the next morning instead of on release day.
+name: builds
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'book/**', 'LICENSE']
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'book/**', 'LICENSE']
+  schedule:
+    - cron: '30 20 * * *'   # 02:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: builds-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  server-windows:
+    name: server (win-x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          cache: true
+          cache-dependency-path: server/**/*.csproj
+      - name: Build the whole solution, WPF included
+        run: dotnet build server/DroidOSS.sln -c Release
+      - name: Publish the single-file exe
+        run: >
+          dotnet publish server/DroidOSS.App -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none -o dist
+      - name: Show what a release would ship
+        shell: pwsh
+        run: Get-ChildItem dist | Format-Table Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: droidOSS-server-win-x64
+          path: dist/
+          retention-days: 14
+
+  android-apk:
+    name: android (apk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: androidapp3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      # Release is built too, to prove its configuration still compiles. With no
+      # keystore on the runner it comes out unsigned, so only debug is uploaded.
+      - name: Assemble debug and release
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: droidOSS-debug-apk
+          path: androidapp3/app/build/outputs/apk/debug/*.apk
+          retention-days: 14
+
+  builds:
+    name: builds
+    if: always()
+    needs: [server-windows, android-apk]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every build passed
+        run: |
+          echo '${{ toJSON(needs) }}' | jq -e 'all(.[]; .result == "success")'
