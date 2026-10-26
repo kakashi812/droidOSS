@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using DroidOSS.Core;
 
-namespace DroidOSS.App;
+namespace DroidOSS.Net;
 
 /// <summary>
 /// The running server: the input socket, discovery, and the timeout sweep, around
@@ -23,11 +23,18 @@ public sealed class ServerHost : IDisposable
     private readonly DiscoveryResponder _discovery;
     private bool _disposed;
 
-    public ServerHost(IPadBackend backend, string serverName)
+    /// <param name="inputPort">Port 0 lets the OS choose, so tests can run side by side.</param>
+    /// <param name="discoveryPort">Likewise.</param>
+    public ServerHost(
+        IPadBackend backend,
+        string serverName,
+        int inputPort = Protocol.InputPort,
+        int discoveryPort = Protocol.DiscoveryPort,
+        TimeSpan? sessionTimeout = null)
     {
-        Sessions = new SessionManager(backend);
-        _listener = new UdpSessionListener(Sessions);
-        _discovery = new DiscoveryResponder(Sessions, serverName);
+        Sessions = new SessionManager(backend, timeout: sessionTimeout);
+        _listener = new UdpSessionListener(Sessions, inputPort);
+        _discovery = new DiscoveryResponder(Sessions, serverName, discoveryPort);
     }
 
     public SessionManager Sessions { get; }
@@ -44,6 +51,12 @@ public sealed class ServerHost : IDisposable
     /// <summary>Why discovery is off, when it is.</summary>
     public string? DiscoveryError { get; private set; }
 
+    /// <summary>The input port, once <see cref="Start"/> has bound it.</summary>
+    public int InputPort => _listener.Port;
+
+    /// <summary>The discovery port, once <see cref="Start"/> has bound it.</summary>
+    public int DiscoveryPort => _discovery.Port;
+
     /// <summary>Datagrams received on the input port, valid or not.</summary>
     public long Received => _listener.Received;
 
@@ -58,6 +71,9 @@ public sealed class ServerHost : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _listener.Bind();
+
+        // Announce the port we really got, not the one we asked for.
+        _discovery.AnnouncedInputPort = (ushort)_listener.Port;
 
         try
         {

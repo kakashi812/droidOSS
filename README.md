@@ -1,5 +1,8 @@
 # droidOSS
 
+[![tests](https://github.com/kakashi812/droidOSS/actions/workflows/tests.yml/badge.svg)](https://github.com/kakashi812/droidOSS/actions/workflows/tests.yml)
+[![builds](https://github.com/kakashi812/droidOSS/actions/workflows/builds.yml/badge.svg)](https://github.com/kakashi812/droidOSS/actions/workflows/builds.yml)
+
 Turn an Android phone into a gamepad your PC can't tell from plastic.
 
 A Windows server creates a virtual Xbox 360 controller through the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver, and an Android app streams touch input to it over Wi-Fi. Games, Steam, and Windows itself see an ordinary controller.
@@ -114,7 +117,7 @@ Sticks use a radial deadzone, so diagonals stay diagonal instead of snapping to 
 **Server** — needs the [.NET SDK](https://dotnet.microsoft.com/download) 10.0 or newer:
 
 ```bash
-dotnet test server/DroidOSS.sln          # 135 tests
+dotnet test server/DroidOSS.sln          # 135 unit + 23 integration tests
 dotnet run --project server/DroidOSS.App                 # the window
 dotnet run --project server/DroidOSS.App -- --console    # text mode
 ```
@@ -142,6 +145,8 @@ py tools/fake_phone.py --selftest        # verify encoding against golden vector
 py tools/fake_phone.py --host 127.0.0.1  # stream to a running server
 py tools/fake_phone.py --listen          # decode an incoming stream
 ```
+
+Every pull request runs all of the above in GitHub Actions — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 

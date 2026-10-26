@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using DroidOSS.Core;
+using DroidOSS.Net;
 using DroidOSS.ViGEm;
 
 namespace DroidOSS.App;

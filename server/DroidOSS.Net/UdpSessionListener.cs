@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using DroidOSS.Core;
 
-namespace DroidOSS.App;
+namespace DroidOSS.Net;
 
 /// <summary>
 /// Receives datagrams, hands them to a <see cref="SessionManager"/>, and sends
@@ -43,6 +43,12 @@ public sealed class UdpSessionListener(SessionManager sessions, int port = Proto
 
     /// <summary>Replies sent — WELCOMEs, mostly.</summary>
     public long Sent { get; private set; }
+
+    /// <summary>
+    /// The port actually bound. Differs from the one asked for only when that
+    /// was 0, which tests use to let the OS pick a free one.
+    /// </summary>
+    public int Port => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
     /// <summary>Binds the port. Throws if something else already holds it.</summary>
     public void Bind()

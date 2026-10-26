@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using DroidOSS.Core;
 
-namespace DroidOSS.App;
+namespace DroidOSS.Net;
 
 /// <summary>
 /// Answers "any servers out there?" so a phone can list this PC without anyone
@@ -30,6 +30,12 @@ public sealed class DiscoveryResponder(
 
     /// <summary>The name phones are shown.</summary>
     public string ServerName { get; } = serverName;
+
+    /// <summary>The input port phones are told to connect to.</summary>
+    public ushort AnnouncedInputPort { get; set; } = Protocol.InputPort;
+
+    /// <summary>The port actually bound — see <see cref="UdpSessionListener.Port"/>.</summary>
+    public int Port => ((IPEndPoint)_socket.LocalEndPoint!).Port;
 
     /// <summary>Binds the discovery port on every interface.</summary>
     /// <exception cref="SocketException">The port is taken.</exception>
@@ -71,7 +77,7 @@ public sealed class DiscoveryResponder(
                 continue;
 
             var length = DiscoveryMessage.WriteAnnounce(
-                reply, ServerName, Protocol.InputPort, sessions.FreeSlots);
+                reply, ServerName, AnnouncedInputPort, sessions.FreeSlots);
 
             try
             {

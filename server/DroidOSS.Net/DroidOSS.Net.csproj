@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The sockets around SessionManager. Plain net10.0, not -windows, so the
+       integration tests can run them on any OS — including a Linux CI runner. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DroidOSS.Core\DroidOSS.Core.csproj" />
+  </ItemGroup>
+
+</Project>

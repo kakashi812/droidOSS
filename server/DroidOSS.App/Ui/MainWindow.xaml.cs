@@ -10,6 +10,7 @@ using System.Windows.Data;
 using System.Windows.Navigation;
 using System.Windows.Threading;
 using DroidOSS.Core;
+using DroidOSS.Net;
 using DroidOSS.ViGEm;
 
 namespace DroidOSS.App.Ui;
